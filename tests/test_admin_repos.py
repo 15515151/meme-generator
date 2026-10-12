@@ -305,3 +305,152 @@ def test_repo_url_normalization():
     assert normalize_repo_url("https://github.com/owner/repo.git") == "owner/repo"
     assert normalize_repo_url("owner/repo") == "owner/repo"
     assert normalize_repo_url("git@github.com:owner/repo.git") == "owner/repo"
+
+
+# -- 表情目录探测 ---------------------------------------------------------
+
+
+def test_detect_meme_dir_prefers_common_names():
+    from meme_generator.repos import detect_meme_dir
+
+    # memes/ 约定
+    assert (
+        detect_meme_dir(
+            ["memes/alpha/__init__.py", "memes/beta/__init__.py", "README.md"]
+        )
+        == "memes"
+    )
+
+    # emoji/ 约定（如 anyliew/meme_emoji）
+    assert (
+        detect_meme_dir(
+            ["emoji/alpha/__init__.py", "emoji/beta/__init__.py", "docs/a.png"]
+        )
+        == "emoji"
+    )
+
+    # 根目录直接放表情
+    assert detect_meme_dir(["alpha/__init__.py", "beta/__init__.py"]) == ""
+
+    # 有干扰目录时，取表情数量最多的那个
+    assert (
+        detect_meme_dir(
+            [
+                "memes/a/__init__.py",
+                "memes/b/__init__.py",
+                "memes/c/__init__.py",
+                "docs/d/__init__.py",
+            ]
+        )
+        == "memes"
+    )
+
+    assert detect_meme_dir([]) == ""
+
+
+def test_install_repo_under_emoji_dir(tmp_path):
+    """表情放在 emoji/ 下的仓库也要能正确加载。"""
+    client, headers = make_client()
+    root = tmp_path / "repo"
+    repo = make_repo(root, {"emoji/hello/__init__.py": HELLO_MEME})
+
+    response = client.post("/api/admin/repos", json={"url": repo}, headers=headers)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["meme_dir"] == "emoji"
+    assert body["meme_keys"] == ["hello"]
+    # 不应把 emoji 目录本身当成表情 key
+    assert "emoji" not in body["meme_keys"]
+    assert "hello" in client.get("/memes/keys").json()
+
+
+def test_preview_detects_layout(tmp_path):
+    client, headers = make_client()
+    repo = make_repo(
+        tmp_path / "repo",
+        {"emoji/alpha/__init__.py": HELLO_MEME, "emoji/beta/__init__.py": HELLO_MEME},
+    )
+
+    response = client.post(
+        "/api/admin/repos/preview", json={"url": repo}, headers=headers
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meme_dir"] == "emoji"
+    assert body["meme_count"] == 2
+    assert sorted(body["meme_keys"]) == ["alpha", "beta"]
+    assert body["installed"] is False
+
+
+def test_presets_endpoint():
+    client, headers = make_client()
+
+    response = client.get("/api/admin/repos/presets", headers=headers)
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) >= 4
+    identifiers = {item["identifier"] for item in items}
+    assert "MemeCrafters/meme-generator-contrib" in identifiers
+    assert "anyliew/meme_emoji" in identifiers
+    # 都没装过
+    assert all(item["installed"] is False for item in items)
+
+    # 仓库命名与分支来自配置
+    jj = next(
+        item for item in items if item["identifier"] == "jinjiao007/meme-generator-jj"
+    )
+    assert jj["branch"] == "master"
+    assert jj["name"] == "jinjiao007的仓库"
+
+
+def test_preset_install_reports_remaining(tmp_path):
+    client, headers = make_client()
+    repo = make_repo(tmp_path / "repo", {"memes/hello/__init__.py": HELLO_MEME})
+    client.post("/api/admin/repos", json={"url": repo}, headers=headers)
+
+    items = client.get("/api/admin/repos/presets", headers=headers).json()["items"]
+
+    # 自定义仓库不影响内置预设的状态
+    assert all(item["installed"] is False for item in items)
+
+
+def test_repo_name_can_be_customized(tmp_path):
+    client, headers = make_client()
+    repo = make_repo(tmp_path / "repo", {"memes/hello/__init__.py": HELLO_MEME})
+
+    response = client.post(
+        "/api/admin/repos",
+        json={"url": repo, "name": "我的表情仓库", "ref": "main"},
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "我的表情仓库"
+    assert body["display_name"] == "我的表情仓库"
+
+
+def test_sync_ignores_non_meme_files(tmp_path):
+    """只同步代码与图片，忽略点文件、缓存等无关内容。"""
+    client, headers = make_client()
+    root = tmp_path / "repo"
+    repo = make_repo(
+        root,
+        {
+            "memes/hello/__init__.py": HELLO_MEME,
+            ".github/workflows/ci.yml": "name: ci\n",
+            "memes/hello/__pycache__/x.pyc": "junk",
+            "notes.txt": "notes",
+        },
+    )
+
+    response = client.post("/api/admin/repos", json={"url": repo}, headers=headers)
+
+    assert response.status_code == 201
+    files = response.json()
+    recorded = client.get("/api/admin/repos", headers=headers).json()["items"][0]
+    assert recorded["file_count"] < 4
+    assert files["meme_count"] == 1

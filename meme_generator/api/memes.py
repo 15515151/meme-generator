@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel
 
 from ..errors import ApiError, ErrorCode
-from ..exception import NoSuchMeme
+from ..exception import MemeGeneratorException, NoSuchMeme, TextOverLength
 from ..log import logger
 from ..manager import (
     get_all_memes,
@@ -226,13 +226,22 @@ async def preview_meme(
     images = [random_image() for _ in range(params.min_images)]
     try:
         result = await run_sync(meme)(images=images, texts=text_list)
-    except Exception as e:  # noqa: BLE001 - 预览失败要转成规范错误
-        from ..exception import MemeGeneratorException
-
-        if isinstance(e, MemeGeneratorException):
+    except TextOverLength:
+        # 有些表情自带的默认文本超出它自己的长度限制，退回占位文本再试一次，
+        # 否则管理面板里这些表情永远显示预览失败。
+        try:
+            fallback = ["示例文本" for _ in range(max(params.min_texts, 1))]
+            result = await run_sync(meme)(images=images, texts=fallback)
+        except Exception as e:  # noqa: BLE001
+            logger.opt(exception=e).warning(f"Preview generation failed for '{key}'")
             raise ApiError(
-                e.error_code, e.message, status_code=e.status_code, context=e.context
-            )
+                ErrorCode.MEME_GENERATOR_ERROR, f"预览生成失败：{e}", status_code=500
+            ) from e
+    except MemeGeneratorException as e:
+        raise ApiError(
+            e.error_code, e.message, status_code=e.status_code, context=e.context
+        )
+    except Exception as e:  # noqa: BLE001 - 预览失败要转成规范错误
         logger.opt(exception=e).warning(f"Preview generation failed for '{key}'")
         raise ApiError(
             ErrorCode.MEME_GENERATOR_ERROR,

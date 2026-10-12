@@ -7,7 +7,12 @@ from pydantic import BaseModel, Field
 
 from ..errors import ApiError, ErrorCode
 from ..log import logger
-from ..repos import normalize_repo_url, repo_manager
+from ..repos import (
+    PRESET_REPOS,
+    normalize_repo_url,
+    repo_manager,
+    repo_source_name,
+)
 from .deps import require_admin
 
 router = APIRouter(prefix="/admin/repos", tags=["admin-repos"])
@@ -15,7 +20,16 @@ router = APIRouter(prefix="/admin/repos", tags=["admin-repos"])
 
 class RepoAddRequest(BaseModel):
     url: str = Field(description="GitHub 仓库地址或 owner/repo，也支持本地绝对路径")
-    ref: str = Field(default="main", description="分支、标签或提交")
+    ref: str = Field(default="", description="分支、标签或提交，留空自动探测")
+    name: str = Field(default="", description="显示名称，留空用仓库名")
+    meme_dir: str = Field(
+        default="", description="仓库内表情目录，留空自动探测（memes/ 或 emoji/）"
+    )
+
+
+class RepoPreviewRequest(BaseModel):
+    url: str = Field(description="待探测的仓库地址")
+    ref: str = Field(default="", description="分支，留空自动探测")
 
 
 class RepoUpdateRequest(BaseModel):
@@ -24,27 +38,37 @@ class RepoUpdateRequest(BaseModel):
 
 class RepoInfo(BaseModel):
     identifier: str
+    name: str
+    display_name: str
     url: str
     ref: str
     enabled: bool
+    meme_dir: str
     installed_at: Optional[float] = None
     updated_at: Optional[float] = None
     file_count: int
     meme_keys: list[str]
     meme_count: int
+    installed: bool = True
+    source: str
 
 
 def _info(state) -> RepoInfo:
+    keys = state.meme_keys
     return RepoInfo(
         identifier=state.identifier,
+        name=state.name,
+        display_name=state.display_name,
         url=state.url,
         ref=state.ref,
         enabled=state.enabled,
+        meme_dir=state.meme_dir,
         installed_at=state.installed_at,
         updated_at=state.updated_at,
         file_count=len(state.files),
-        meme_keys=state.meme_keys,
-        meme_count=len(state.meme_keys),
+        meme_keys=keys,
+        meme_count=len(keys),
+        source=repo_source_name(state.identifier),
     )
 
 
@@ -52,6 +76,44 @@ def _info(state) -> RepoInfo:
 def list_repos(_: str = Depends(require_admin)):
     repos = [_info(state) for state in repo_manager.list_repos()]
     return {"total": len(repos), "items": repos}
+
+
+@router.get("/presets")
+def list_presets(_: str = Depends(require_admin)):
+    """内置的常用仓库，附带「是否已添加」状态。"""
+    items = []
+    for preset in PRESET_REPOS:
+        identifier = normalize_repo_url(preset["url"])
+        existing = repo_manager.get_repo(identifier)
+        items.append(
+            {
+                **preset,
+                "identifier": identifier,
+                "installed": existing is not None,
+                "installed_id": existing.identifier if existing else None,
+                "meme_count": len(existing.meme_keys) if existing else 0,
+            }
+        )
+    return {"total": len(items), "items": items}
+
+
+@router.post("/preview")
+async def preview_repo(data: RepoPreviewRequest, _: str = Depends(require_admin)):
+    """添加前探测仓库：自动识别表情目录、统计表情数量。"""
+    try:
+        return await repo_manager.preview(data.url, data.ref)
+    except ValueError as e:
+        raise ApiError(
+            ErrorCode.REPO_INVALID, str(e), status_code=400, context={"url": data.url}
+        )
+    except Exception as e:  # noqa: BLE001 - 网络/解析异常统一转换
+        logger.opt(exception=e).error(f"Failed to preview repo {data.url}")
+        raise ApiError(
+            ErrorCode.REPO_FETCH_FAILED,
+            f"仓库探测失败：{e}",
+            status_code=502,
+            context={"url": data.url},
+        )
 
 
 @router.post("", response_model=RepoInfo, status_code=201)
@@ -71,7 +133,9 @@ async def add_repo(data: RepoAddRequest, _: str = Depends(require_admin)):
         )
 
     try:
-        state = await repo_manager.install(data.url, ref=data.ref or "main")
+        state = await repo_manager.install(
+            data.url, ref=data.ref, name=data.name, meme_dir=data.meme_dir
+        )
     except ValueError as e:
         raise ApiError(
             ErrorCode.REPO_INVALID, str(e), status_code=400, context={"url": data.url}
