@@ -30,7 +30,8 @@ docker run -d --name meme-generator -p 2233:2233 \
 打开 [http://127.0.0.1:2233](http://127.0.0.1:2233) 进入管理面板，首次访问设置管理员密码，
 然后在「外部仓库」页面添加表情仓库即可使用。服务端每 5 分钟自动检查并同步仓库，关闭网页后仍会运行。
 
-`meme-data` 卷保存配置、管理员凭据和同步的外部仓库，重建容器时继续挂载同一个卷即可保留数据。
+`meme-data` 卷保存管理员凭据和同步的外部仓库，重建容器时继续挂载同一个卷即可保留这些数据。
+容器每次启动会根据环境变量重新生成 `/data/config.toml`；直接修改该文件或在面板里修改的封禁列表会在下次启动时被覆盖。
 镜像地址：[Docker Hub](https://hub.docker.com/r/virtualangel0721/meme-generator)；也可使用
 `ghcr.io/all-thoughts-are-broken/meme-generator:latest`。需要固定版本时可将 `latest` 改为 `0.1.16`。
 
@@ -79,8 +80,52 @@ uv run meme list                                 # 查看已加载表情
 | Linux | `~/.local/share/meme_generator` |
 | macOS | `~/Library/Application Support/meme_generator` |
 
-其中 `admin.json` 是管理员凭据，`repos/` 是同步下来的外部仓库，`config.toml` 保存配置与封禁列表。
-忘记密码时删除 `admin.json` 并重启即可重新初始化。
+数据目录里的 `admin.json` 保存管理员凭据，`repos/` 保存同步下来的外部仓库。
+Linux 设置了 `XDG_DATA_HOME` 时，默认数据目录为 `$XDG_DATA_HOME/meme_generator`；
+设置 `MEME_GENERATOR_DATA_DIR` 后，以该环境变量指定的路径为准。Docker 镜像默认使用 `/data`。
+配置与封禁列表保存在配置目录的 `config.toml` 中，具体位置见下方「配置」。
+忘记密码的重置步骤见下方「常见问题（Q&A）」。
+
+### 浅色模式截图
+
+以下截图展示仅加载内置示例表情、尚未添加外部仓库时的实际界面。
+
+**概览**：查看表情、仓库、封禁与待同步更新数量，并通过快捷入口进入管理页面。
+
+![Web 管理面板概览（浅色模式）](docs/images/web-dashboard-light.png)
+
+**表情管理**：预览表情，按关键词、状态与来源筛选，支持单个或批量封禁。
+
+![Web 表情管理（浅色模式）](docs/images/web-memes-light.png)
+
+**外部仓库**：浏览常用仓库预设，添加与管理第三方表情仓库。
+
+![Web 外部仓库管理（浅色模式）](docs/images/web-repos-light.png)
+
+<details>
+<summary>展开查看更多界面：登录、添加仓库、更新检查、设置与 API 文档</summary>
+
+**登录**：输入管理员密码进入管理面板。
+
+![Web 管理员登录（浅色模式）](docs/images/web-login-light.png)
+
+**添加外部仓库**：填写仓库地址、分支与表情目录，探测后添加并下载。
+
+![Web 添加外部仓库（浅色模式）](docs/images/web-repo-add-light.png)
+
+**更新检查**：按表情或仓库查看变更；截图展示尚未添加仓库时的提示。
+
+![Web 更新检查（浅色模式）](docs/images/web-updates-light.png)
+
+**设置**：切换主题、设置 API 域名、修改密码，查看服务信息与错误响应格式。
+
+![Web 管理面板设置（浅色模式）](docs/images/web-settings-light.png)
+
+**API 文档**：查看接口说明、参数与请求示例。
+
+![Web API 文档（浅色模式）](docs/images/web-api-docs-light.png)
+
+</details>
 
 ## 外部表情仓库
 
@@ -277,7 +322,17 @@ curl "http://127.0.0.1:2233/api/updates?include_content=true"
 
 ## 配置
 
-默认配置文件位置见上面的数据目录表，可用环境变量覆盖：
+`config.toml` 默认位于以下配置目录，与管理员凭据所在的数据目录分别管理：
+
+| 平台 | 默认配置文件 |
+| --- | --- |
+| Windows | `%APPDATA%\meme_generator\config.toml` |
+| Linux | `~/.config/meme_generator/config.toml` |
+| macOS | `~/Library/Application Support/meme_generator/config.toml` |
+| Docker 镜像 | `/data/config.toml` |
+
+Linux 设置了 `XDG_CONFIG_HOME` 时，默认配置文件为 `$XDG_CONFIG_HOME/meme_generator/config.toml`。
+可用以下环境变量覆盖默认位置：
 
 | 环境变量 | 说明 |
 | --- | --- |
@@ -332,10 +387,68 @@ docker build -t meme-generator .
 docker run -d --name meme-generator -p 2233:2233 -v meme-data:/data meme-generator
 ```
 
-容器内监听 `0.0.0.0:2233`。**配置、管理员凭据与同步的外部仓库都保存在 `/data` 卷**，
-重建容器不会丢失，所以务必挂载该卷。
+容器内监听 `0.0.0.0:2233`。管理员凭据和同步的外部仓库保存在 `/data` 卷，
+重建容器时继续挂载同一个卷即可保留这些数据。
+`/data/config.toml` 在每次启动时由环境变量和模板重新生成，直接修改的配置与面板维护的封禁列表会被覆盖。
 
 `docker-compose.yml` 里已配置健康检查，并预留了 `GITHUB_TOKEN`、百度翻译等可选环境变量。
+
+## 常见问题（Q&A）
+
+### 忘记管理员密码了怎么办？
+
+停止服务，删除**数据目录中的 `admin.json`**，再启动服务并打开管理面板，即可重新设置至少 8 位的密码。
+管理员凭据会缓存在内存中，因此需要先停服务。删除 `config.toml` 不能重置密码。
+只删除 `admin.json`，保留 `repos/` 和其他数据；重新初始化后，之前签发的登录令牌会失效。
+
+**源码部署：** 停止 `meme run` 或对应的服务进程，按上方数据目录表找到 `admin.json` 并删除。
+如果设置过 `MEME_GENERATOR_DATA_DIR`，请到该目录操作，然后用原来的启动方式重启。
+
+**Docker 部署：** 按本文快速体验命令创建的容器使用 `meme-data` 卷，凭据文件为 `/data/admin.json`：
+
+```bash
+docker stop meme-generator
+docker run --rm -v meme-data:/data alpine:3.20 rm -f /data/admin.json
+docker start meme-generator
+```
+
+这些命令只删除管理员凭据，不删除整个数据卷或下载的仓库。
+如果使用 Compose、自定义卷名或绑定挂载，请先查看实际挂载信息：
+
+```bash
+docker inspect meme-generator --format '{{json .Mounts}}'
+```
+
+找到 `Destination` 为 `/data` 的挂载。命名卷使用其实际 `Name` 替换示例中的 `meme-data`
+（Compose 的卷名通常带项目名前缀）；绑定挂载则在停止容器后删除宿主机对应目录内的 `admin.json`。
+重启后访问首页设置新密码。
+
+### 为什么刚启动只有两个表情？
+
+本仓库只内置 `google` 和 `alike` 两个示例。登录后进入「外部仓库」，选择常用仓库添加，
+或填入自定义 GitHub 仓库地址；下载完成后，表情会自动加载到「表情管理」。
+
+### 关闭网页或退出登录后，还会自动更新吗？
+
+会。自动检查在服务端运行，服务启动 5 分钟后开始，之后每 5 分钟检查并同步外部仓库。
+只要服务或容器在运行，就无需保持网页打开或登录；单个仓库失败会在后续轮次重试。
+也可以在面板手动检查更新，应用后无需重启服务。
+
+### 重建 Docker 容器会丢失数据吗？
+
+继续挂载同一个 `/data` 数据卷，就能保留管理员凭据和已同步的外部仓库。
+不要删除数据卷；使用 Compose 时，`docker compose down -v` 会删除关联的命名卷。
+当前镜像每次启动会重新生成 `config.toml`，因此直接修改的配置和面板设置的封禁列表会被覆盖。
+
+### 表情被封禁后还能恢复吗？
+
+可以。在「表情管理」中按封禁状态筛选，再启用对应表情即可。封禁不会删除表情文件。
+
+### 添加仓库失败或遇到 GitHub 限流怎么办？
+
+确认仓库地址、分支和表情目录正确，并检查服务端日志与网络连接。
+私有仓库需要具有相应读取权限的令牌；遇到限流时，可在服务启动前设置 `GITHUB_TOKEN`，
+Docker 部署可通过 `-e GITHUB_TOKEN=你的令牌` 传入，然后重新创建容器并挂载原数据卷。
 
 ## 开发
 
