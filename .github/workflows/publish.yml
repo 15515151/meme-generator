@@ -11,7 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Publish python package
-        uses: JRubics/poetry-publish@v2.0
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v9.0.0
         with:
-          pypi_token: ${{ secrets.PYPI_TOKEN }}
+          enable-cache: true
+
+      - name: Publish python package
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          uv build
+          uv publish

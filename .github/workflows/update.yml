@@ -48,11 +48,13 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Setup Poetry
-        uses: Gr1N/setup-poetry@v9
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
 
       - name: Install dependencies
-        run: poetry install
+        run: uv sync --locked
 
       - name: Install fonts
         run: |
@@ -62,7 +64,7 @@ jobs:
           fc-cache -fv
 
       - name: Update memes.md
-        run: poetry run python wiki/update_meme_list.py
+        run: uv run --locked python wiki/update_meme_list.py
 
       - name: Commit & Push changes
         uses: actions-js/push@master

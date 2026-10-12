@@ -1,41 +1,54 @@
-[tool.poetry]
+[project]
 name = "meme-generator"
 version = "0.1.14"
 description = "Python package for making fun pictures"
-authors = ["meetwq <meetwq@gmail.com>"]
+authors = [{ name = "meetwq", email = "meetwq@gmail.com" }]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/MemeCrafters/meme-generator"
-repository = "https://github.com/MemeCrafters/meme-generator"
+requires-python = ">=3.9,<4.0"
+dependencies = [
+    "httpx>=0.20.0,<1.0.0",
+    "loguru>=0.6.0,<1.0.0",
+    # Keep Windows installs working on Python 3.9/3.10.
+    "msvc-runtime<14.44; sys_platform == 'win32'",
+    "pil-utils>=0.2.0,<0.3.0",
+    "Pillow>=10.0.0,<11.0.0",
+    "toml>=0.10.2,<0.11.0",
+    "fastapi>=0.93.0,<1.0.0",
+    "uvicorn>=0.20.0,<1.0.0",
+    "python-multipart>=0.0.9,<0.1.0,!=0.0.13,!=0.0.14",
+    "filetype>=1.2.0,<2.0.0",
+    "rich>=13.0.0,<14.0.0",
+    "dateparser>=1.2.0,<2.0.0",
+    "qrcode>=8.0,<9.0",
+    "typing-extensions>=4.4.0,<5.0.0",
+    "arclet-alconna>=1.8.23,<2.0.0,!=1.8.27",
+    "arclet-alconna-tools>=0.7.9,<0.8.0",
+    "skia-python>=138.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/MemeCrafters/meme-generator"
+Repository = "https://github.com/MemeCrafters/meme-generator"
+
+[project.scripts]
+meme = "meme_generator.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0,<9.0.0",
+    "ruff==0.11.7",
+]
+
+[tool.hatch.build]
 exclude = [
     "meme_generator/memes/**/*.jpg",
     "meme_generator/memes/**/*.png",
     "meme_generator/memes/**/*.gif",
 ]
 
-[tool.poetry.dependencies]
-python = "^3.9"
-httpx = ">=0.20.0,<1.0.0"
-loguru = ">=0.6.0,<1.0.0"
-pil-utils = "^0.2.0"
-Pillow = "^10.0.0"
-toml = "^0.10.2"
-fastapi = ">=0.93.0,<1.0.0"
-uvicorn = ">=0.20.0,<1.0.0"
-python-multipart = ">=0.0.9,<0.1.0,!=0.0.13,!=0.0.14"
-filetype = "^1.2.0"
-rich = "^13.0.0"
-dateparser = "^1.2.0"
-qrcode = "^8.0"
-typing-extensions = ">=4.4.0,<5.0.0"
-arclet-alconna = "^1.8.23,!=1.8.27"
-arclet-alconna-tools = "^0.7.9"
-skia-python = ">=138.0"
-
-[tool.poetry.group.dev.dependencies]
-
-[tool.poetry.scripts]
-meme = "meme_generator.cli:main"
+[tool.hatch.build.targets.wheel]
+packages = ["meme_generator"]
 
 [tool.pyright]
 pythonVersion = "3.9"
@@ -55,5 +68,5 @@ ignore = ["E402", "E501", "E711", "C901", "UP037"]
 detect-same-package = true
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"

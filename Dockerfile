@@ -2,18 +2,17 @@ FROM python:3.10 AS tmp
 
 WORKDIR /tmp
 
-RUN curl -sSL https://install.python-poetry.org | python -
+COPY --from=ghcr.io/astral-sh/uv:0.8.19 /uv /uvx /usr/local/bin/
 
-ENV PATH="${PATH}:/root/.local/bin"
+COPY ./pyproject.toml ./uv.lock /tmp/
 
-COPY ./pyproject.toml ./poetry.lock* /tmp/
-
-RUN poetry self add poetry-plugin-export \
-  && poetry export -f requirements.txt --output requirements.txt --without-hashes
+RUN uv export --frozen --no-dev --no-hashes --no-emit-project --output-file requirements.txt
 
 FROM python:3.10-slim AS app
 
 WORKDIR /app
+
+COPY --from=ghcr.io/astral-sh/uv:0.8.19 /uv /uvx /usr/local/bin/
 
 EXPOSE 2233
 
@@ -38,7 +37,7 @@ RUN apt-get update \
   && fc-cache -fv \
   && apt-get purge -y --auto-remove \
   && rm -rf /var/lib/apt/lists/* \
-  && pip install --no-cache-dir --upgrade -r /app/requirements.txt
+  && uv pip install --system --no-cache --upgrade -r /app/requirements.txt
 
 COPY ./meme_generator /app/meme_generator
 
