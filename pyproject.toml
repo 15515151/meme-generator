@@ -28,8 +28,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/MemeCrafters/meme-generator"
-Repository = "https://github.com/MemeCrafters/meme-generator"
+Homepage = "https://github.com/all-thoughts-are-broken/meme-generator"
+Repository = "https://github.com/all-thoughts-are-broken/meme-generator"
+Upstream = "https://github.com/MemeCrafters/meme-generator"
 
 [project.scripts]
 meme = "meme_generator.cli:main"
@@ -41,14 +42,36 @@ dev = [
 ]
 
 [tool.hatch.build]
+# 表情素材不进包，运行时由资源接口下载；管理面板的构建产物需要打包进去。
 exclude = [
     "meme_generator/memes/**/*.jpg",
     "meme_generator/memes/**/*.png",
     "meme_generator/memes/**/*.gif",
 ]
+include = [
+    "meme_generator/web_dist/**",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["meme_generator"]
+artifacts = ["meme_generator/web_dist/**"]
+
+[tool.hatch.build.targets.sdist]
+# 仓库根目录的 resources/ 是给 Docker 镜像用的字体（约 85MB），
+# 不应进入源码包；表情素材同样排除。
+include = [
+    "/meme_generator",
+    "/tests",
+    "/tools",
+    "/docker",
+    "/pyproject.toml",
+    "/README.md",
+    "/LICENSE",
+]
+exclude = [
+    "/resources",
+    "meme_generator/memes/**/images/**",
+]
 
 [tool.pyright]
 pythonVersion = "3.9"

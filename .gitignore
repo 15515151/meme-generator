@@ -7,6 +7,13 @@ venv/
 node_modules/
 pdm.lock
 
+# 前端依赖与本地构建缓存；构建产物（meme_generator/web_dist）需要提交，
+# 这样直接装包或跑容器就有管理面板可用。
+web/node_modules/
+web/dist/
+web/.vite/
+*.tsbuildinfo
+
 result.png
 result.jpg
 result.gif

@@ -8,6 +8,20 @@ COPY ./pyproject.toml ./uv.lock /tmp/
 
 RUN uv export --frozen --no-dev --no-hashes --no-emit-project --output-file requirements.txt
 
+FROM node:20-slim AS web
+
+WORKDIR /web
+
+# 只复制依赖清单，让 npm ci 这层能被缓存
+COPY ./web/package.json ./web/package-lock.json* /web/
+
+RUN npm ci --no-audit --no-fund
+
+COPY ./web /web
+
+# 构建产物输出到包目录，下一步随应用到镜像里
+RUN npm run build
+
 FROM python:3.10-slim AS app
 
 WORKDIR /app
@@ -18,7 +32,10 @@ EXPOSE 2233
 
 VOLUME /data
 
+# 配置、管理凭据和同步的外部仓库都放在 /data，容器重建后不会丢。
 ENV TZ=Asia/Shanghai \
+  MEME_GENERATOR_CONFIG_FILE=/data/config.toml \
+  MEME_GENERATOR_DATA_DIR=/data \
   LOAD_BUILTIN_MEMES=true \
   MEME_DIRS="[\"/data/memes\"]" \
   MEME_DISABLED_LIST="[]" \
@@ -40,6 +57,8 @@ RUN apt-get update \
   && uv pip install --system --no-cache --upgrade -r /app/requirements.txt
 
 COPY ./meme_generator /app/meme_generator
+# 用上面 web 阶段刚构建的产物覆盖源码目录里的旧文件
+COPY --from=web /meme_generator/web_dist /app/meme_generator/web_dist
 
 COPY ./docker/config.toml.template /app/config.toml.template
 COPY ./docker/start.sh /app/start.sh
