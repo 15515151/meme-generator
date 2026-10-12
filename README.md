@@ -17,6 +17,25 @@
 
 ## 快速开始
 
+### Docker 快速体验（推荐）
+
+已发布的镜像支持 `linux/amd64` 和 `linux/arm64`，安装 Docker 后即可启动，无需克隆仓库或本地构建：
+
+```bash
+docker run -d --name meme-generator -p 2233:2233 \
+  -v meme-data:/data \
+  virtualangel0721/meme-generator:latest
+```
+
+打开 [http://127.0.0.1:2233](http://127.0.0.1:2233) 进入管理面板，首次访问设置管理员密码，
+然后在「外部仓库」页面添加表情仓库即可使用。服务端每 5 分钟自动检查并同步仓库，关闭网页后仍会运行。
+
+`meme-data` 卷保存配置、管理员凭据和同步的外部仓库，重建容器时继续挂载同一个卷即可保留数据。
+镜像地址：[Docker Hub](https://hub.docker.com/r/virtualangel0721/meme-generator)；也可使用
+`ghcr.io/all-thoughts-are-broken/meme-generator:latest`。需要固定版本时可将 `latest` 改为 `0.1.16`。
+
+### 从源码启动
+
 ```bash
 uv sync --locked
 uv run meme run
@@ -297,7 +316,10 @@ log_level = "INFO"
 
 ## Docker
 
-用 Compose 启动（推荐）：
+直接体验可使用上方「Docker 快速体验」的已发布镜像。
+以下方式适合克隆本仓库后从源码构建。
+
+用 Compose 构建并启动：
 
 ```bash
 docker compose up -d
