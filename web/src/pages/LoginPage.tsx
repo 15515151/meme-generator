@@ -64,9 +64,7 @@ export default function LoginPage() {
         </div>
 
         <form className="auth-card" onSubmit={onSubmit}>
-          <div className="auth-mark" aria-hidden>
-            🎨
-          </div>
+          <img className="auth-mark" src="/logo.png" alt="" />
           <h1 className="auth-title">{isSetup ? '初始化管理面板' : '登录管理面板'}</h1>
           <p className="auth-desc">
             {isSetup

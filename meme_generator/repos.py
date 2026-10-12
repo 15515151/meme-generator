@@ -17,6 +17,7 @@
   请求几百次。
 """
 
+import asyncio
 import hashlib
 import json
 import os
@@ -486,6 +487,8 @@ class RepoManager:
 
     def __init__(self) -> None:
         self._states: Optional[dict[str, RepoState]] = None
+        self._update_lock = asyncio.Lock()
+        self._auto_update_running = False
 
     def repos_root(self) -> Path:
         root = get_data_dir() / REPOS_DIR_NAME
@@ -598,7 +601,28 @@ class RepoManager:
         self.load_repo_memes(state)
         return state
 
+    async def update_all_repos(self) -> None:
+        """自动同步已注册仓库；上一轮尚未结束时跳过，单仓库失败不影响其他仓库。"""
+        if self._auto_update_running:
+            return
+        self._auto_update_running = True
+        try:
+            for state in self.list_repos():
+                try:
+                    await self.update(state.identifier)
+                except Exception as e:  # noqa: BLE001 - 仓库异常隔离，取消仍向上传播
+                    logger.opt(exception=e).warning(
+                        f"Failed to automatically update repo {state.identifier}"
+                    )
+        finally:
+            self._auto_update_running = False
+
     async def update(self, identifier: str) -> tuple[RepoState, dict[str, Any]]:
+        """串行执行自动与手动更新，避免同时写入仓库与重新加载表情。"""
+        async with self._update_lock:
+            return await self._update(identifier)
+
+    async def _update(self, identifier: str) -> tuple[RepoState, dict[str, Any]]:
         """重新拉取仓库内容，返回状态和变更摘要。"""
         state = self.get_repo(identifier)
         if not state:
@@ -609,9 +633,9 @@ class RepoManager:
         changes = self.diff_with_files(state, files)
 
         if changes["added"] or changes["modified"] or changes["removed"]:
-            # 先卸载旧表情，避免新版本用同一个 key 注册时被当成重复而跳过
-            unload_memes_by_source(repo_source_name(state.identifier))
             await self._sync_files(client, state, files, full=False)
+            # 下载完成后再卸载，网络失败或关闭取消时保留当前已加载的表情。
+            unload_memes_by_source(repo_source_name(state.identifier))
             state.updated_at = time.time()
             self._save_state(state)
             self.load_repo_memes(state)

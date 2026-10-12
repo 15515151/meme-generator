@@ -133,9 +133,7 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <span className="brand-mark" aria-hidden>
-            🎨
-          </span>
+          <img className="brand-mark" src="/logo.png" alt="" />
           <span className="brand-text">表情管理控制台</span>
         </div>
 

@@ -114,7 +114,7 @@ export default function DashboardPage({
           <p className="text-muted text-sm mb-0">
             服务版本 <span className="mono">{health?.version ?? '—'}</span>
             {repos.length > 0 && <> · 已注册 {repos.length} 个外部仓库</>}
-            。外部仓库的表情会在服务启动时自动加载，修改后无需重启。
+            。服务端每 5 分钟自动检查并同步外部仓库，网页关闭后仍会运行，修改后无需重启。
           </p>
         </Card>
       </div>
@@ -209,7 +209,7 @@ export default function DashboardPage({
         <div className="section">
           <Card title="已注册仓库" count={`（${repos.length}）`}>
             <div className="list">
-              {repos.slice(0, 5).map((repo) => (
+              {repos.map((repo) => (
                 <div key={repo.identifier} className="list-row">
                   <div className="list-main">
                     <div className="list-title">

@@ -3,6 +3,7 @@
 用本地目录当仓库，既能覆盖下载/安装/更新逻辑，又不依赖网络。
 """
 
+import asyncio
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -454,3 +455,221 @@ def test_sync_ignores_non_meme_files(tmp_path):
     recorded = client.get("/api/admin/repos", headers=headers).json()["items"][0]
     assert recorded["file_count"] < 4
     assert files["meme_count"] == 1
+
+
+def test_auto_update_syncs_registered_repos_without_login(tmp_path):
+    from meme_generator.repos import repo_manager
+
+    async def scenario():
+        root = tmp_path / "repo"
+        repo = make_repo(root, {"memes/hello/__init__.py": HELLO_MEME})
+        await repo_manager.install(repo)
+        make_repo(root, {"memes/bye/__init__.py": BYE_MEME})
+        await repo_manager.update_all_repos()
+        assert repo_manager.get_repo(repo).meme_keys == ["bye", "hello"]
+        assert (await repo_manager.check_update(repo))["has_update"] is False
+        with TestClient(create_app()) as client:
+            assert "bye" in client.get("/memes/keys").json()
+
+    asyncio.run(scenario())
+
+
+def test_auto_update_isolates_errors_and_skips_overlapping_rounds(monkeypatch):
+    from meme_generator.repos import RepoManager, RepoState
+
+    async def scenario():
+        manager = RepoManager()
+        started = asyncio.Event()
+        release = asyncio.Event()
+        visited = []
+
+        async def update(identifier):
+            visited.append(identifier)
+            if identifier == "bad/repo":
+                started.set()
+                await release.wait()
+                raise OSError("repository unavailable")
+
+        monkeypatch.setattr(
+            manager,
+            "list_repos",
+            lambda: [RepoState("bad/repo"), RepoState("good/repo")],
+        )
+        monkeypatch.setattr(manager, "update", update)
+        first = asyncio.create_task(manager.update_all_repos())
+        await started.wait()
+        await manager.update_all_repos()
+        assert visited == ["bad/repo"]
+        release.set()
+        await first
+        assert visited == ["bad/repo", "good/repo"]
+        assert manager._auto_update_running is False
+
+    asyncio.run(scenario())
+
+
+def test_auto_update_cancellation_allows_next_round(monkeypatch):
+    from meme_generator.repos import RepoManager, RepoState
+
+    async def scenario():
+        manager = RepoManager()
+        started = asyncio.Event()
+
+        async def update(identifier):
+            started.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(manager, "list_repos", lambda: [RepoState("owner/repo")])
+        monkeypatch.setattr(manager, "update", update)
+        task = asyncio.create_task(manager.update_all_repos())
+        await started.wait()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert task.cancelled()
+        assert manager._auto_update_running is False
+        monkeypatch.setattr(manager, "list_repos", lambda: [])
+        await manager.update_all_repos()
+
+    asyncio.run(scenario())
+
+
+def test_repo_updates_are_serialized_and_cancellation_releases_lock(monkeypatch):
+    from meme_generator.repos import RepoManager
+
+    async def scenario():
+        manager = RepoManager()
+        started = asyncio.Event()
+        block = asyncio.Event()
+        visited = []
+
+        async def update(identifier):
+            visited.append(identifier)
+            if identifier == "first":
+                started.set()
+                await block.wait()
+            return identifier, {}
+
+        monkeypatch.setattr(manager, "_update", update)
+        first = asyncio.create_task(manager.update("first"))
+        await started.wait()
+        second = asyncio.create_task(manager.update("second"))
+        await asyncio.sleep(0)
+        assert visited == ["first"]
+        first.cancel()
+        try:
+            await first
+        except asyncio.CancelledError:
+            pass
+        await second
+        assert visited == ["first", "second"]
+
+    asyncio.run(scenario())
+
+
+def test_lifespan_starts_periodic_updates_and_cancels_inflight_work(monkeypatch):
+    from meme_generator import app as app_module
+    from meme_generator.repos import repo_manager
+
+    async def scenario():
+        app = create_app()
+        delays = []
+        checking = asyncio.Event()
+        cancelled = asyncio.Event()
+        real_sleep = asyncio.sleep
+
+        async def sleep(delay):
+            delays.append(delay)
+            await real_sleep(0)
+
+        async def update_all():
+            checking.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        monkeypatch.setattr(app_module.asyncio, "sleep", sleep)
+        monkeypatch.setattr(repo_manager, "update_all_repos", update_all)
+        async with app.router.lifespan_context(app):
+            await checking.wait()
+            assert delays == [300]
+            assert not app.state.repo_update_task.done()
+        assert cancelled.is_set()
+        assert app.state.repo_update_task.cancelled()
+
+    asyncio.run(scenario())
+
+
+def test_periodic_updates_continue_after_round_failure(monkeypatch):
+    from meme_generator import app as app_module
+    from meme_generator.repos import repo_manager
+
+    async def scenario():
+        retry = asyncio.Event()
+        calls = 0
+        real_sleep = asyncio.sleep
+
+        async def sleep(delay):
+            assert delay > 0
+            await real_sleep(0)
+
+        async def update_all():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("temporary failure")
+            retry.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(app_module.asyncio, "sleep", sleep)
+        monkeypatch.setattr(repo_manager, "update_all_repos", update_all)
+        app = create_app()
+        async with app.router.lifespan_context(app):
+            await retry.wait()
+        assert calls == 2
+
+    asyncio.run(scenario())
+
+
+def test_periodic_updates_keep_startup_schedule_and_skip_missed_ticks(monkeypatch):
+    from meme_generator import app as app_module
+    from meme_generator.repos import repo_manager
+
+    async def scenario():
+        now = 0.0
+        delays = []
+        starts = []
+
+        class Clock:
+            def time(self):
+                return now
+
+        async def sleep(delay):
+            nonlocal now
+            delays.append(delay)
+            now += delay
+
+        async def update_all():
+            nonlocal now
+            starts.append(now)
+            if len(starts) == 1:
+                now += 20
+            elif len(starts) == 2:
+                now += 650
+            else:
+                raise asyncio.CancelledError
+
+        monkeypatch.setattr(app_module.asyncio, "get_running_loop", Clock)
+        monkeypatch.setattr(app_module.asyncio, "sleep", sleep)
+        monkeypatch.setattr(repo_manager, "update_all_repos", update_all)
+        try:
+            await app_module._auto_update_repos()
+        except asyncio.CancelledError:
+            pass
+        assert starts == [300, 600, 1500]
+        assert delays == [300, 280, 250]
+
+    asyncio.run(scenario())

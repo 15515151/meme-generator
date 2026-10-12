@@ -1,4 +1,6 @@
+import asyncio
 import json
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -312,8 +314,46 @@ def register_web_ui(api: FastAPI) -> None:
         return FileResponse(index_file)
 
 
+REPO_UPDATE_INTERVAL = 5 * 60
+
+
+async def _auto_update_repos() -> None:
+    from meme_generator.log import logger
+    from meme_generator.repos import repo_manager
+
+    loop = asyncio.get_running_loop()
+    next_check = loop.time() + REPO_UPDATE_INTERVAL
+    delay = REPO_UPDATE_INTERVAL
+    while True:
+        await asyncio.sleep(delay)
+        try:
+            await repo_manager.update_all_repos()
+        except Exception as e:  # noqa: BLE001 - 一轮失败不终止后续检查
+            logger.opt(exception=e).warning("Failed to automatically update repos")
+        # 以启动时刻为基准；耗时超过周期时跳过错过的时点，不补跑或重叠。
+        now = loop.time()
+        next_check += REPO_UPDATE_INTERVAL
+        if next_check <= now:
+            missed = int((now - next_check) // REPO_UPDATE_INTERVAL) + 1
+            next_check += missed * REPO_UPDATE_INTERVAL
+        delay = next_check - now
+
+
+@asynccontextmanager
+async def lifespan(api: FastAPI):
+    task = asyncio.create_task(_auto_update_repos(), name="repo-auto-update")
+    api.state.repo_update_task = task
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
 def create_app() -> FastAPI:
     api = FastAPI(
+        lifespan=lifespan,
         title="meme-generator",
         version=__version__,
         description=(

@@ -1739,14 +1739,25 @@ table.table tbody tr:hover {
 }
 
 .spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border-strong);
-  border-top-color: var(--accent);
+  width: 18px;
+  height: 18px;
+  border: 3px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 0.65s linear infinite;
   flex-shrink: 0;
   display: inline-block;
+}
+
+.btn:disabled:has(.spinner) {
+  opacity: 1;
+  cursor: wait;
+}
+
+.brand-mark,
+.auth-mark {
+  object-fit: cover;
+  background: var(--glass-bg-strong);
 }
 
 @keyframes spin {
