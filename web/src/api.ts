@@ -238,6 +238,17 @@ export interface Health {
   repos: number
 }
 
+export interface ServerSettings {
+  api_domain: string
+  host: string
+  port: number
+}
+
+export interface SettingsResponse {
+  server: ServerSettings
+  config_file: string
+}
+
 // -- 接口 ------------------------------------------------------------------
 
 export const api = {
@@ -336,6 +347,14 @@ export const api = {
     request<{ total: number; memes_updated: number; items: MemeUpdateItem[] }>(
       '/api/admin/updates/memes',
     ),
+
+  // 设置
+  getSettings: () => request<SettingsResponse>('/api/admin/settings'),
+  updateSettings: (apiDomain: string) =>
+    request<SettingsResponse>('/api/admin/settings', {
+      method: 'PATCH',
+      body: { api_domain: apiDomain },
+    }),
 }
 
 export const publicApi = {

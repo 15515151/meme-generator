@@ -937,6 +937,352 @@ select.input {
   cursor: pointer;
 }
 
+/* -- 自定义下拉选择器 ---------------------------------------------------- */
+
+.select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 148px;
+  max-width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+}
+
+.select:hover:not(:disabled) {
+  border-color: var(--text-dim);
+}
+
+.select.open,
+.select:focus-visible {
+  border-color: var(--accent);
+  background: var(--solid);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-value.placeholder {
+  color: var(--text-dim);
+  font-weight: 450;
+}
+
+.select-caret {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  transition: transform 0.2s var(--ease);
+}
+
+.select.open .select-caret {
+  transform: rotate(180deg);
+}
+
+/* 菜单挂在 body 上，用固定定位跟随触发器，避免被卡片 overflow 裁切 */
+.select-menu {
+  z-index: 70;
+  padding: 5px;
+  overflow-y: auto;
+  border-radius: var(--radius);
+  background: var(--glass-bg-strong);
+  animation: menu-in 0.14s var(--ease);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.select-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-option.active {
+  background: var(--glass-bg);
+  color: var(--text);
+}
+
+.select-option.selected {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.select-empty {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* -- API 文档页 ---------------------------------------------------------- */
+
+.docs-layout {
+  display: grid;
+  grid-template-columns: minmax(210px, 258px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .docs-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.docs-toc {
+  position: sticky;
+  top: calc(var(--header-h) + 18px);
+  max-height: calc(100vh - var(--header-h) - 40px);
+  overflow-y: auto;
+  padding: 14px;
+}
+
+@media (max-width: 1000px) {
+  .docs-toc {
+    position: static;
+    max-height: none;
+  }
+}
+
+.docs-toc-group + .docs-toc-group {
+  margin-top: 14px;
+}
+
+.docs-toc-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  padding: 0 8px 6px;
+}
+
+.docs-toc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+
+.docs-toc-item:hover {
+  background: var(--glass-bg-subtle);
+  color: var(--text);
+}
+
+.docs-toc-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.docs-toc-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.method {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  min-width: 42px;
+  text-align: center;
+}
+
+.method-get {
+  background: var(--success-soft);
+  color: var(--success);
+  border: 1px solid var(--success-border);
+}
+
+.method-post {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+}
+
+.method-patch {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid var(--warning-border);
+}
+
+.method-put {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid var(--warning-border);
+}
+
+.method-delete {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
+}
+
+.endpoint {
+  scroll-margin-top: calc(var(--header-h) + 16px);
+}
+
+.endpoint + .endpoint {
+  margin-top: 14px;
+}
+
+.endpoint-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+
+.endpoint-path {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.endpoint-summary {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  flex: 1;
+  min-width: 120px;
+}
+
+.endpoint-body {
+  padding: 18px;
+}
+
+.param-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+
+.param-table th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.param-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--text-secondary);
+}
+
+.param-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.param-name {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.param-required {
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.param-type {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.docs-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin: 16px 0 8px;
+}
+
+.docs-section-title:first-child {
+  margin-top: 0;
+}
+
+
 .toolbar {
   display: flex;
   gap: 10px;

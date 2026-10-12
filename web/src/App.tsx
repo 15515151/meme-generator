@@ -9,6 +9,7 @@ import MemesPage from './pages/MemesPage'
 import ReposPage from './pages/ReposPage'
 import UpdatesPage from './pages/UpdatesPage'
 import SettingsPage from './pages/SettingsPage'
+import ApiDocsPage from './pages/ApiDocsPage'
 import { Spinner } from './components/ui'
 import {
   IconDashboard,
@@ -16,12 +17,13 @@ import {
   IconMeme,
   IconMoon,
   IconRepo,
+  IconServer,
   IconSettings,
   IconSun,
   IconUpdate,
 } from './components/icons'
 
-type Tab = 'dashboard' | 'memes' | 'repos' | 'updates' | 'settings'
+type Tab = 'dashboard' | 'memes' | 'repos' | 'updates' | 'settings' | 'docs'
 
 const NAV: {
   id: Tab
@@ -43,12 +45,21 @@ const NAV: {
   { id: 'settings', label: '设置', icon: IconSettings, title: '设置', sub: '账号与接口信息' },
 ]
 
+const DOCS_NAV = {
+  id: 'docs' as Tab,
+  label: 'API 文档',
+  icon: IconServer,
+  title: 'API 文档',
+  sub: '接口说明与请求示例',
+}
+
 export default function App() {
   const { loading, authenticated, logout } = useAuth()
   const { theme, toggle } = useTheme()
   const [tab, setTab] = useState<Tab>('dashboard')
   const [health, setHealth] = useState<Health | null>(null)
   const [pendingUpdates, setPendingUpdates] = useState<number | null>(null)
+  const [apiDomain, setApiDomain] = useState('')
 
   useEffect(() => {
     if (!authenticated) {
@@ -68,7 +79,24 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [authenticated, tab])
+  }, [authenticated, tab, apiDomain])
+
+  // 读取配置的对外地址，API 文档的示例要用它
+  useEffect(() => {
+    if (!authenticated) return
+    let cancelled = false
+    api
+      .getSettings()
+      .then((result) => {
+        if (!cancelled) setApiDomain(result.server.api_domain)
+      })
+      .catch(() => {
+        /* 读取失败时文档退回当前地址 */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [authenticated, apiDomain])
 
   // 后台静默检查更新，给侧边栏一个待处理数量
   useEffect(() => {
@@ -99,7 +127,7 @@ export default function App() {
     return <LoginPage />
   }
 
-  const current = NAV.find((item) => item.id === tab) ?? NAV[0]
+  const current = tab === 'docs' ? DOCS_NAV : (NAV.find((item) => item.id === tab) ?? NAV[0])
 
   return (
     <div className="shell">
@@ -131,6 +159,17 @@ export default function App() {
               </button>
             )
           })}
+
+          <div className="nav-section">开发</div>
+          <button
+            className={`nav-item${tab === 'docs' ? ' active' : ''}`}
+            onClick={() => setTab('docs')}
+          >
+            <span className="nav-icon">
+              <IconServer size={17} />
+            </span>
+            <span>API 文档</span>
+          </button>
         </nav>
 
         <div className="sidebar-foot">
@@ -155,6 +194,15 @@ export default function App() {
               v{health.version}
             </span>
           )}
+          {/* 右上角直达接口文档 */}
+          <button
+            className={`btn btn-sm${tab === 'docs' ? ' btn-primary' : ''}`}
+            onClick={() => setTab('docs')}
+            title="查看 API 文档"
+          >
+            <IconServer size={14} />
+            API 文档
+          </button>
           <button
             className="btn btn-ghost btn-icon"
             onClick={toggle}
@@ -182,7 +230,10 @@ export default function App() {
           {tab === 'updates' && (
             <UpdatesPage onApplied={() => setPendingUpdates(null)} onNavigate={(next) => setTab(next as Tab)} />
           )}
-          {tab === 'settings' && <SettingsPage />}
+          {tab === 'settings' && (
+            <SettingsPage apiDomain={apiDomain} onApiDomainChange={setApiDomain} />
+          )}
+          {tab === 'docs' && <ApiDocsPage apiDomain={apiDomain} />}
         </main>
       </div>
 

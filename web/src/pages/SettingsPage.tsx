@@ -5,9 +5,15 @@ import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { useToast } from '../components/Toast'
 import { Alert, Badge, Card, Spinner, Switch } from '../components/ui'
-import { IconCode, IconLock, IconMoon, IconServer, IconSun } from '../components/icons'
+import { IconCheck, IconCode, IconLock, IconMoon, IconServer, IconSun } from '../components/icons'
 
-export default function SettingsPage() {
+export default function SettingsPage({
+  apiDomain,
+  onApiDomainChange,
+}: {
+  apiDomain: string
+  onApiDomainChange: (value: string) => void
+}) {
   const toast = useToast()
   const { logout } = useAuth()
   const { theme, setTheme } = useTheme()
@@ -18,6 +24,13 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
   const [version, setVersion] = useState('')
   const [openapiPaths, setOpenapiPaths] = useState<number | null>(null)
+  const [domainDraft, setDomainDraft] = useState(apiDomain)
+  const [savingDomain, setSavingDomain] = useState(false)
+  const [domainError, setDomainError] = useState('')
+
+  useEffect(() => {
+    setDomainDraft(apiDomain)
+  }, [apiDomain])
 
   useEffect(() => {
     publicApi
@@ -29,6 +42,31 @@ export default function SettingsPage() {
       .then((data) => setOpenapiPaths(Object.keys(data.paths ?? {}).length))
       .catch(() => setOpenapiPaths(null))
   }, [])
+
+  async function saveDomain(e: FormEvent) {
+    e.preventDefault()
+    setDomainError('')
+    const value = domainDraft.trim()
+    if (value && !/^https?:\/\//.test(value)) {
+      setDomainError('地址需要以 http:// 或 https:// 开头')
+      return
+    }
+    setSavingDomain(true)
+    try {
+      const result = await api.updateSettings(value)
+      onApiDomainChange(result.server.api_domain)
+      setDomainDraft(result.server.api_domain)
+      toast.success(
+        result.server.api_domain ? 'API 域名已保存' : '已清空，API 文档将使用当前地址',
+      )
+    } catch (e) {
+      setDomainError(e instanceof ApiError ? e.message : '保存失败')
+    } finally {
+      setSavingDomain(false)
+    }
+  }
+
+  const effectiveBase = apiDomain || (typeof window !== 'undefined' ? window.location.origin : '')
 
   async function changePassword(e: FormEvent) {
     e.preventDefault()
@@ -85,6 +123,46 @@ export default function SettingsPage() {
           <p className="text-sm text-muted mt-3 mb-0">
             主题偏好保存在本地浏览器，也可跟随系统设置。
           </p>
+        </Card>
+
+        <Card title="API 域名" pad>
+          <p className="text-sm text-muted mb-4">
+            配置后，API 文档里的请求地址与 cURL 示例会使用这个域名，方便把接口说明直接发给调用方。
+            留空则使用当前访问地址。
+          </p>
+          {domainError && <Alert kind="error">{domainError}</Alert>}
+          <form onSubmit={saveDomain}>
+            <div className="field">
+              <label htmlFor="api-domain">对外访问地址</label>
+              <input
+                id="api-domain"
+                className="input"
+                value={domainDraft}
+                placeholder="https://meme.example.com"
+                spellCheck={false}
+                onChange={(e) => setDomainDraft(e.target.value)}
+              />
+              <span className="field-hint">
+                需要带协议头。当前示例地址：<code className="mono">{effectiveBase}</code>
+              </span>
+            </div>
+            <div className="btn-row">
+              <button className="btn btn-primary" type="submit" disabled={savingDomain}>
+                {savingDomain ? <span className="spinner" /> : <IconCheck size={14} />}
+                保存
+              </button>
+              {domainDraft !== apiDomain && (
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => setDomainDraft(apiDomain)}
+                  disabled={savingDomain}
+                >
+                  撤销
+                </button>
+              )}
+            </div>
+          </form>
         </Card>
 
         <Card title="服务信息" pad>

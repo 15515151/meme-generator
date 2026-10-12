@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError, api, type MemeSummary } from '../api'
 import { useToast } from '../components/Toast'
 import { Alert, Badge, Card, Empty, Modal, Spinner, formatSize, sourceLabel } from '../components/ui'
+import { Select } from '../components/Select'
 import { IconBan, IconCheck, IconEye, IconMeme, IconRefresh, IconSearch } from '../components/icons'
 
 type StatusFilter = 'all' | 'enabled' | 'disabled'
@@ -106,20 +107,31 @@ export default function MemesPage() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <select className="input" value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
-          <option value="all">全部状态</option>
-          <option value="enabled">已启用</option>
-          <option value="disabled">已封禁</option>
-        </select>
+        <Select
+          value={status}
+          onChange={(next) => setStatus(next as StatusFilter)}
+          ariaLabel="按状态筛选"
+          options={[
+            { value: 'all', label: '全部状态' },
+            { value: 'enabled', label: '已启用' },
+            { value: 'disabled', label: '已封禁' },
+          ]}
+        />
         {sources.length > 1 && (
-          <select className="input" value={source} onChange={(e) => setSource(e.target.value)}>
-            <option value="">全部来源</option>
-            {sources.map((item) => (
-              <option key={item} value={item}>
-                {sourceLabel(item)}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={source}
+            onChange={setSource}
+            ariaLabel="按来源筛选"
+            className="source-select"
+            options={[
+              { value: '', label: '全部来源' },
+              ...sources.map((item) => ({
+                value: item,
+                label: sourceLabel(item),
+                title: sourceLabel(item),
+              })),
+            ]}
+          />
         )}
         <button className="btn btn-icon" onClick={() => void load()} title="刷新">
           <IconRefresh size={15} />
