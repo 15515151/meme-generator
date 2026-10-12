@@ -176,9 +176,21 @@ if WINDOWS:
 P = ParamSpec("P")
 
 APP_NAME = "meme_generator"
-BASE_CACHE_DIR = user_cache_dir(APP_NAME).resolve()
-BASE_CONFIG_DIR = user_config_dir(APP_NAME).resolve()
-BASE_DATA_DIR = user_data_dir(APP_NAME).resolve()
+
+
+def _resolve_base_dir(env_var: str, default: Path) -> Path:
+    """允许用环境变量重定向目录，便于测试与容器部署。"""
+    override = os.getenv(env_var)
+    if override:
+        return Path(override).expanduser().resolve()
+    return default.resolve()
+
+
+BASE_CACHE_DIR = _resolve_base_dir("MEME_GENERATOR_CACHE_DIR", user_cache_dir(APP_NAME))
+BASE_CONFIG_DIR = _resolve_base_dir(
+    "MEME_GENERATOR_CONFIG_DIR", user_config_dir(APP_NAME)
+)
+BASE_DATA_DIR = _resolve_base_dir("MEME_GENERATOR_DATA_DIR", user_data_dir(APP_NAME))
 
 
 def _ensure_dir(path: Path) -> None:
