@@ -21,6 +21,20 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      # skia（pil-utils 依赖）需要这些系统库，否则 import 就会失败
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            fontconfig fonts-noto-color-emoji \
+            libgl1 libglx-mesa0 libgl1-mesa-dri libegl1
+
+      - name: Install fonts
+        run: |
+          sudo mkdir -p /usr/share/fonts/meme-fonts
+          sudo cp resources/fonts/* /usr/share/fonts/meme-fonts/
+          sudo fc-cache -fv
+
       - name: Lint
         run: uv run --locked ruff check .
 

@@ -1,4 +1,4 @@
-name: Build docker image for meme-generator
+name: Docker
 
 on:
   push:
@@ -6,15 +6,20 @@ on:
       - "main"
     tags:
       - "v*"
+  pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
-  push_to_registry:
-    name: Push Docker image to GitHub Packages
+  # PR 与分支推送只验证镜像能构建成功，不推送到仓库。
+  # 这样 Dockerfile 的改动在合并前就能被验证（本地没装 Docker 也能查）。
+  build:
+    name: Build image
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -22,25 +27,72 @@ jobs:
       - name: Setup Docker
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Github Container Registry
-        uses: docker/login-action@v2
+      - name: Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: meme-generator:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the image
+        run: |
+          set -e
+          docker run -d --name meme-ci -p 2233:2233 -v /tmp/meme-data:/data meme-generator:ci
+          # 等待服务起来，最多 90 秒
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:2233/meme/version > /tmp/version.json 2>/dev/null; then
+              echo "service is up after ${i} attempt(s)"
+              break
+            fi
+            sleep 2
+          done
+          cat /tmp/version.json
+          echo ""
+          # 管理面板与其接口都应可用
+          curl -fsS -o /dev/null -w "UI: %{http_code}\n" http://127.0.0.1:2233/
+          curl -fsS http://127.0.0.1:2233/api/admin/status
+          echo ""
+          curl -fsS -X POST http://127.0.0.1:2233/memes/google/ -F "texts=CI" -o /tmp/out.jpg
+          file /tmp/out.jpg
+          docker logs meme-ci | tail -20
+          docker rm -f meme-ci
+
+  # 打 tag 时构建多架构镜像并推送到 GHCR
+  publish:
+    name: Publish to GHCR
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate Tags
-        uses: docker/metadata-action@v4
+      - name: Generate tags
+        uses: docker/metadata-action@v5
         id: metadata
         with:
           images: |
             ghcr.io/${{ github.repository }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
+            type=ref,event=tag
             type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
-      - name: Build and Publish
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
