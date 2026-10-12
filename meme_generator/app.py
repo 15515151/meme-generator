@@ -1,23 +1,43 @@
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 import filetype
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import FastAPI, File, Form, Response, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from meme_generator.compat import model_dump, model_json_schema, type_validate_python
 from meme_generator.config import meme_config
+from meme_generator.errors import (
+    ApiError,
+    ErrorCode,
+    error_payload,
+    register_exception_handlers,
+)
 from meme_generator.exception import (
-    ArgModelMismatch,
     MemeGeneratorException,
     NoSuchMeme,
 )
 from meme_generator.log import LOGGING_CONFIG, setup_logger
-from meme_generator.manager import get_meme, get_meme_keys, get_memes
-from meme_generator.meme import CommandShortcut, Meme, MemeArgsModel, ParserOption
+from meme_generator.manager import (
+    get_meme,
+    get_meme_keys,
+    get_memes,
+    is_meme_disabled,
+)
+from meme_generator.meme import (
+    CommandShortcut,
+    Meme,
+    MemeArgsModel,
+    ParserOption,
+)
 from meme_generator.utils import MemeProperties, render_meme_list, run_sync
 from meme_generator.version import __version__
+
+WEB_DIST_DIR = Path(__file__).parent / "web_dist"
 
 
 class MemeArgsResponse(BaseModel):
@@ -45,49 +65,73 @@ class MemeInfoResponse(BaseModel):
     date_modified: datetime
 
 
-def register_meme_route(api: FastAPI, meme: Meme) -> None:
-    if args_type := meme.params_type.args_type:
-        args_model = args_type.args_model
-    else:
-        args_model = MemeArgsModel
+def _ensure_meme_enabled(key: str) -> Meme:
+    """取表情并确认它未被管理员禁用。"""
+    meme = get_meme(key)
+    if is_meme_disabled(key):
+        raise ApiError(
+            ErrorCode.MEME_DISABLED,
+            f"表情“{key}”已被禁用",
+            status_code=403,
+            context={"meme_key": key},
+        )
+    return meme
 
-    def args_checker(
-        args: Optional[str] = Form(default=json.dumps(model_dump(args_model()))),
-    ):
-        if not args:
-            return args_model()
+
+async def _generate_meme(
+    key: str,
+    images: Optional[list[UploadFile]],
+    texts: Optional[list[str]],
+    args: Optional[str] = None,
+):
+    try:
+        meme = _ensure_meme_enabled(key)
+    except NoSuchMeme as e:
+        raise ApiError(
+            ErrorCode.NO_SUCH_MEME,
+            e.message,
+            status_code=e.status_code,
+            context=e.context,
+        )
+
+    imgs: list[bytes] = []
+    for image in images or []:
+        imgs.append(await image.read())
+
+    if texts:
+        text_list = [text for text in texts if text]
+    else:
+        text_list = list(meme.params_type.default_texts)
+
+    args_model = (
+        meme.params_type.args_type.args_model
+        if meme.params_type.args_type
+        else MemeArgsModel
+    )
+    if args:
         try:
             model = type_validate_python(args_model, json.loads(args))
-        except ValidationError as e:
-            e = ArgModelMismatch(str(e))
-            raise HTTPException(status_code=552, detail=e.message)
-        return model
+        except (ValidationError, ValueError) as e:
+            raise ApiError(
+                ErrorCode.ARG_MODEL_MISMATCH,
+                f"参数模型验证失败（{e}）",
+                status_code=552,
+            ) from e
+    else:
+        model = args_model()
 
-    @api.post(f"/memes/{meme.key}/", tags=["memes"])
-    async def _(
-        images: Optional[list[UploadFile]] = File(default=None),
-        texts: Optional[list[str]] = Form(default=None),
-        args: args_model = Depends(args_checker),  # type: ignore
-    ):
-        imgs: list[bytes] = []
-        for image in images or []:
-            imgs.append(await image.read())
+    try:
+        result = await run_sync(meme)(
+            images=imgs, texts=text_list, args=model_dump(model)
+        )
+    except MemeGeneratorException as e:
+        raise ApiError(
+            e.error_code, e.message, status_code=e.status_code, context=e.context
+        )
 
-        texts = texts if texts is not None else meme.params_type.default_texts
-        texts = [text for text in texts if text]
-
-        assert isinstance(args, args_model)
-
-        try:
-            result = await run_sync(meme)(
-                images=imgs, texts=texts, args=model_dump(args)
-            )
-        except MemeGeneratorException as e:
-            raise HTTPException(status_code=e.status_code, detail=e.message)
-
-        content = result.getvalue()
-        media_type = str(filetype.guess_mime(content)) or "text/plain"
-        return Response(content=content, media_type=media_type)
+    content = result.getvalue()
+    media_type = str(filetype.guess_mime(content)) or "text/plain"
+    return Response(content=content, media_type=media_type)
 
 
 class MemeKeyWithProperties(BaseModel):
@@ -121,7 +165,12 @@ def register_routes(api: FastAPI) -> None:
                 for p in params.meme_list
             ]
         except NoSuchMeme as e:
-            raise HTTPException(status_code=e.status_code, detail=e.message)
+            raise ApiError(
+                ErrorCode.NO_SUCH_MEME,
+                e.message,
+                status_code=e.status_code,
+                context=e.context,
+            )
 
         result = render_meme_list(
             meme_list,
@@ -143,9 +192,14 @@ def register_routes(api: FastAPI) -> None:
     @api.get("/memes/{key}/info", tags=["memes"])
     def _(key: str):
         try:
-            meme = get_meme(key)
+            meme = _ensure_meme_enabled(key)
         except NoSuchMeme as e:
-            raise HTTPException(status_code=e.status_code, detail=e.message)
+            raise ApiError(
+                ErrorCode.NO_SUCH_MEME,
+                e.message,
+                status_code=e.status_code,
+                context=e.context,
+            )
 
         args_type_response = None
         if args_type := meme.params_type.args_type:
@@ -178,26 +232,101 @@ def register_routes(api: FastAPI) -> None:
     @api.get("/memes/{key}/preview", tags=["memes"])
     async def _(key: str):
         try:
-            meme = get_meme(key)
+            meme = _ensure_meme_enabled(key)
             result = await run_sync(meme.generate_preview)()
+        except NoSuchMeme as e:
+            raise ApiError(
+                ErrorCode.NO_SUCH_MEME,
+                e.message,
+                status_code=e.status_code,
+                context=e.context,
+            )
         except MemeGeneratorException as e:
-            raise HTTPException(status_code=e.status_code, detail=e.message)
+            raise ApiError(
+                e.error_code, e.message, status_code=e.status_code, context=e.context
+            )
 
         content = result.getvalue()
         media_type = str(filetype.guess_mime(content)) or "text/plain"
         return Response(content=content, media_type=media_type)
 
-    for meme in sorted(get_memes(), key=lambda meme: meme.key):
-        register_meme_route(api, meme)
+    # 通用生成路由：注册在具体字面量路径之后，运行时新增的表情无需重启即可使用。
+    @api.post("/memes/{key}/", tags=["memes"])
+    async def _(
+        key: str,
+        images: Optional[list[UploadFile]] = File(default=None),
+        texts: Optional[list[str]] = Form(default=None),
+        args: Optional[str] = Form(default=None),
+    ):
+        return await _generate_meme(key, images, texts, args)
+
+
+def register_admin_and_public_routes(api: FastAPI) -> None:
+    from meme_generator.api import build_admin_router
+    from meme_generator.api.public import router as public_router
+
+    api.include_router(build_admin_router())
+    api.include_router(public_router)
+
+
+def register_web_ui(api: FastAPI) -> None:
+    """挂载管理面板静态资源。
+
+    前端构建产物放在 ``meme_generator/web_dist``。未构建时给出提示而不是 404，
+    方便开发阶段直接跑 API。
+    """
+    index_file = WEB_DIST_DIR / "index.html"
+    if not index_file.is_file():
+
+        @api.get("/", include_in_schema=False)
+        def _no_ui():
+            return JSONResponse(
+                {
+                    "message": "管理面板尚未构建，开发模式下请运行前端 dev server",
+                    "docs": "/docs",
+                    "api": "/api/memes",
+                }
+            )
+
+        return
+
+    assets_dir = WEB_DIST_DIR / "assets"
+    if assets_dir.is_dir():
+        api.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @api.get("/", include_in_schema=False)
+    def _index():
+        return FileResponse(index_file)
+
+    @api.get("/{path:path}", include_in_schema=False)
+    def _spa(path: str):
+        # 静态文件优先，其余路径交给前端路由（单页应用刷新时用）
+        candidate = (WEB_DIST_DIR / path).resolve()
+        if WEB_DIST_DIR in candidate.parents and candidate.is_file() and path:
+            return FileResponse(candidate)
+        if path.startswith(("api/", "memes/", "meme/", "docs", "openapi.json")):
+            return JSONResponse(
+                status_code=404,
+                content=error_payload(ErrorCode.NOT_FOUND, "接口不存在", 404),
+            )
+        return FileResponse(index_file)
 
 
 def create_app() -> FastAPI:
     api = FastAPI(
         title="meme-generator",
         version=__version__,
-        description="A small meme generation API with pluggable meme templates.",
+        description=(
+            "表情包生成服务，自带管理面板。\n\n"
+            "- `/memes/*`：生成与查询接口\n"
+            "- `/api/*`：公开的清单与更新查询接口\n"
+            "- `/api/admin/*`：管理面板接口，需要登录"
+        ),
     )
+    register_exception_handlers(api)
     register_routes(api)
+    register_admin_and_public_routes(api)
+    register_web_ui(api)
     return api
 
 
