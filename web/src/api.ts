@@ -151,14 +151,40 @@ export interface MemeListResponse {
 
 export interface RepoInfo {
   identifier: string
+  name: string
+  display_name: string
   url: string
   ref: string
   enabled: boolean
+  meme_dir: string
   installed_at: number | null
   updated_at: number | null
   file_count: number
   meme_keys: string[]
   meme_count: number
+  installed: boolean
+  source: string
+}
+
+export interface RepoPreset {
+  name: string
+  url: string
+  branch: string
+  identifier: string
+  installed: boolean
+  installed_id: string | null
+  meme_count: number
+}
+
+export interface RepoPreview {
+  identifier: string
+  name: string
+  ref: string
+  meme_dir: string
+  file_count: number
+  meme_count: number
+  meme_keys: string[]
+  installed: boolean
 }
 
 export interface UpdateFile {
@@ -172,6 +198,7 @@ export interface UpdateFile {
 
 export interface UpdateResult {
   identifier: string
+  name?: string
   has_update: boolean
   changes: {
     added: string[]
@@ -268,8 +295,18 @@ export const api = {
 
   // 仓库管理
   listRepos: () => request<{ total: number; items: RepoInfo[] }>('/api/admin/repos'),
-  addRepo: (url: string, ref: string) =>
-    request<RepoInfo>('/api/admin/repos', { method: 'POST', body: { url, ref } }),
+  listPresets: () =>
+    request<{ total: number; items: RepoPreset[] }>('/api/admin/repos/presets'),
+  previewRepo: (url: string, ref: string) =>
+    request<RepoPreview>('/api/admin/repos/preview', {
+      method: 'POST',
+      body: { url, ref },
+    }),
+  addRepo: (url: string, ref: string, name: string, memeDir: string) =>
+    request<RepoInfo>('/api/admin/repos', {
+      method: 'POST',
+      body: { url, ref, name, meme_dir: memeDir },
+    }),
   removeRepo: (identifier: string) =>
     request<{ identifier: string; removed_memes: string[]; message: string }>(
       `/api/admin/repos/${encodeURIComponent(identifier)}`,

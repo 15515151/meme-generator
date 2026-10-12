@@ -1,17 +1,22 @@
 import { useEffect, useState } from 'react'
 
-import { ApiError, api, type Health, type UpdateResult } from '../api'
-import { Alert, Badge, Empty, Spinner, sourceLabel } from '../components/ui'
+import { ApiError, api, type RepoInfo, type UpdateResult } from '../api'
+import { Alert, Badge, Card, Empty, StatCard, relativeTime } from '../components/ui'
+import { IconRepo, IconUpdate, IconMeme, IconServer, IconPlus } from '../components/icons'
 
 export default function DashboardPage({
   health,
   onNavigate,
+  pendingUpdates,
+  onUpdatesChecked,
 }: {
-  health: Health | null
+  health: { version: string; memes: number; disabled: number; repos: number } | null
   onNavigate: (tab: string) => void
+  pendingUpdates: number | null
+  onUpdatesChecked: (count: number) => void
 }) {
+  const [repos, setRepos] = useState<RepoInfo[]>([])
   const [updates, setUpdates] = useState<UpdateResult[] | null>(null)
-  const [repos, setRepos] = useState<{ identifier: string }[]>([])
   const [error, setError] = useState('')
   const [checking, setChecking] = useState(false)
 
@@ -36,6 +41,7 @@ export default function DashboardPage({
     try {
       const result = await api.checkUpdates()
       setUpdates(result.results)
+      onUpdatesChecked(result.updated)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '检查更新失败')
     } finally {
@@ -43,129 +49,184 @@ export default function DashboardPage({
     }
   }
 
-  const pending = updates?.filter((r) => r.has_update).length ?? 0
+  const changedRepos = (updates ?? []).filter((r) => r.has_update)
 
   return (
     <>
-      <div className="page-head">
-        <h1 className="page-title">概览</h1>
-        <p className="page-desc">
-          表情包生成服务的管理面板。可以在这里管理表情、同步外部仓库并检查更新。
-        </p>
-      </div>
-
       {error && <Alert kind="error">{error}</Alert>}
 
-      {health ? (
-        <div className="stats">
-          <div className="stat">
-            <div className="stat-label">服务版本</div>
-            <div className="stat-value small">{health.version}</div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">已加载表情</div>
-            <div className="stat-value">{health.memes}</div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">已封禁表情</div>
-            <div className="stat-value" style={{ color: health.disabled ? 'var(--warning)' : undefined }}>
-              {health.disabled}
-            </div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">外部仓库</div>
-            <div className="stat-value">{health.repos}</div>
-          </div>
-        </div>
-      ) : (
-        <Spinner />
-      )}
+      <div className="stats-grid">
+        <StatCard
+          label="已加载表情"
+          value={health?.memes ?? '—'}
+          icon={<IconMeme size={16} />}
+          hint={
+            health
+              ? health.disabled > 0
+                ? `其中 ${health.disabled} 个已封禁`
+                : '全部启用中'
+              : undefined
+          }
+        />
+        <StatCard
+          label="外部仓库"
+          value={health?.repos ?? '—'}
+          icon={<IconRepo size={16} />}
+          hint={repos.length > 0 ? `共 ${repos.reduce((sum, r) => sum + r.meme_count, 0)} 个外部表情` : '尚未添加'}
+        />
+        <StatCard
+          label="已封禁"
+          value={health?.disabled ?? '—'}
+          icon={<IconServer size={16} />}
+          tone={health?.disabled ? 'warn' : undefined}
+          hint="不会出现在对外接口中"
+        />
+        <StatCard
+          label="待同步更新"
+          value={pendingUpdates === null ? '—' : pendingUpdates}
+          icon={<IconUpdate size={16} />}
+          tone={pendingUpdates ? 'warn' : 'ok'}
+          hint={pendingUpdates ? '有仓库内容发生变化' : '全部为最新'}
+        />
+      </div>
 
-      <div className="card" style={{ marginTop: 14 }}>
-        <h2 className="card-title">快捷操作</h2>
-        <div className="btn-row">
-          <button className="btn btn-primary" onClick={() => onNavigate('memes')}>
-            管理表情
-          </button>
-          <button className="btn" onClick={() => onNavigate('repos')}>
-            添加外部仓库
-          </button>
-          <button className="btn" onClick={() => void checkAll()} disabled={checking}>
-            {checking && <span className="spinner" />}
-            检查所有更新
-          </button>
-        </div>
+      <div className="section">
+        <Card
+          title="快捷操作"
+          actions={
+            <>
+              <button className="btn btn-sm" onClick={() => onNavigate('memes')}>
+                <IconMeme size={14} />
+                管理表情
+              </button>
+              <button className="btn btn-sm" onClick={() => onNavigate('repos')}>
+                <IconPlus size={14} />
+                添加仓库
+              </button>
+              <button className="btn btn-sm btn-primary" onClick={() => void checkAll()} disabled={checking}>
+                {checking ? <span className="spinner" /> : <IconUpdate size={14} />}
+                检查所有更新
+              </button>
+            </>
+          }
+          pad
+        >
+          <p className="text-muted text-sm mb-0">
+            服务版本 <span className="mono">{health?.version ?? '—'}</span>
+            {repos.length > 0 && <> · 已注册 {repos.length} 个外部仓库</>}
+            。外部仓库的表情会在服务启动时自动加载，修改后无需重启。
+          </p>
+        </Card>
       </div>
 
       {updates && (
-        <div className="card">
-          <h2 className="card-title">
-            更新检查结果
-            {pending > 0 ? (
-              <Badge tone="warn">{pending} 个仓库有更新</Badge>
+        <div className="section">
+          <Card
+            title="更新检查结果"
+            count={updates.length > 0 ? `（${changedRepos.length}/${updates.length} 个仓库有更新）` : undefined}
+            actions={
+              changedRepos.length > 0 ? (
+                <button className="btn btn-sm" onClick={() => onNavigate('updates')}>
+                  查看详细变更
+                </button>
+              ) : undefined
+            }
+          >
+            {updates.length === 0 ? (
+              <Empty
+                icon={<IconRepo size={26} />}
+                title="还没有注册外部仓库"
+                desc="添加仓库后可以在这里检查更新"
+                action={
+                  <button className="btn btn-primary btn-sm" onClick={() => onNavigate('repos')}>
+                    去添加仓库
+                  </button>
+                }
+              />
             ) : (
-              <Badge tone="on">全部最新</Badge>
-            )}
-          </h2>
-
-          {updates.length === 0 && <Empty>还没有注册任何外部仓库</Empty>}
-
-          <div className="user-list">
-            {updates.map((result) => (
-              <div key={result.identifier} className="row-card">
-                <div className="row-head">
-                  <div>
-                    <div className="row-title">{sourceLabel(`repo:${result.identifier}`)}</div>
-                    <div className="row-sub">
-                      {result.error
-                        ? `检查失败：${result.error}`
-                        : result.has_update
-                          ? `新增 ${result.changes.added.length} 个文件 · 修改 ${result.changes.modified.length} 个 · 删除 ${result.changes.removed.length} 个`
-                          : '没有变化'}
+              <div className="list">
+                {updates.map((result) => (
+                  <div key={result.identifier} className="list-row">
+                    <div className="list-main">
+                      <div className="list-title">
+                        {result.name || result.identifier}
+                        {result.error ? (
+                          <Badge tone="off">检查失败</Badge>
+                        ) : result.has_update ? (
+                          <Badge tone="warn" dot>
+                            有更新
+                          </Badge>
+                        ) : (
+                          <Badge tone="on" dot>
+                            最新
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="list-meta">
+                        {result.error ? (
+                          <span>{result.error}</span>
+                        ) : result.has_update ? (
+                          <>
+                            <span>新增 {result.changes.added.length} 个文件</span>
+                            <span>修改 {result.changes.modified.length} 个</span>
+                            {result.changes.removed.length > 0 && (
+                              <span>删除 {result.changes.removed.length} 个</span>
+                            )}
+                          </>
+                        ) : (
+                          <span>没有检测到变化</span>
+                        )}
+                      </div>
+                      {result.has_update &&
+                        (result.changes.added_memes.length > 0 ||
+                          result.changes.modified_memes.length > 0) && (
+                          <div className="chip-list">
+                            {result.changes.added_memes.slice(0, 6).map((key) => (
+                              <Badge key={`a-${key}`} tone="info">
+                                +{key}
+                              </Badge>
+                            ))}
+                            {result.changes.modified_memes.slice(0, 6).map((key) => (
+                              <Badge key={`m-${key}`} tone="warn">
+                                ~{key}
+                              </Badge>
+                            ))}
+                            {result.changes.added_memes.length + result.changes.modified_memes.length > 12 && (
+                              <span>等{result.changes.added_memes.length + result.changes.modified_memes.length} 个</span>
+                            )}
+                          </div>
+                        )}
                     </div>
                   </div>
-                  {result.has_update ? (
-                    <Badge tone="warn">有更新</Badge>
-                  ) : (
-                    <Badge tone="on">最新</Badge>
-                  )}
-                </div>
-
-                {result.has_update && (
-                  <div className="row-sub" style={{ marginTop: 8 }}>
-                    {result.changes.added_memes.length > 0 && (
-                      <div>
-                        新增表情：
-                        {result.changes.added_memes.map((k) => (
-                          <Badge key={k} tone="info">
-                            {k}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                    {result.changes.modified_memes.length > 0 && (
-                      <div style={{ marginTop: 4 }}>
-                        更新表情：
-                        {result.changes.modified_memes.map((k) => (
-                          <Badge key={k} tone="warn">
-                            {k}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </Card>
+        </div>
+      )}
 
-          {repos.length > 0 && (
-            <div className="btn-row" style={{ marginTop: 12 }}>
-              <button className="btn btn-sm" onClick={() => onNavigate('updates')}>
-                查看详细变更
-              </button>
+      {repos.length > 0 && !updates && (
+        <div className="section">
+          <Card title="已注册仓库" count={`（${repos.length}）`}>
+            <div className="list">
+              {repos.slice(0, 5).map((repo) => (
+                <div key={repo.identifier} className="list-row">
+                  <div className="list-main">
+                    <div className="list-title">
+                      {repo.display_name}
+                      <Badge tone="info">{repo.meme_count} 表情</Badge>
+                    </div>
+                    <div className="list-meta">
+                      <span className="mono">{repo.identifier}</span>
+                      <span>@{repo.ref}</span>
+                      {repo.meme_dir && <span>目录 {repo.meme_dir}/</span>}
+                      <span>更新于 {relativeTime(repo.updated_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
+          </Card>
         </div>
       )}
     </>
