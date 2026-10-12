@@ -1,37 +1,28 @@
 # meme-generator
 
-一个基于 Python、FastAPI、Pillow/skia 的表情包生成服务，**自带 Web 管理面板**和**外部表情仓库管理**。
+一个基于 Python、FastAPI、Pillow/skia 的表情包生成服务，**自带 Web 管理面板**与**外部表情仓库管理**。
 
-仓库本身只保留两个示例表情（`google`、`alike`）作为模板，实际使用的表情通过外部仓库（如
-[MemeCrafters/meme-generator-contrib](https://github.com/MemeCrafters/meme-generator-contrib)）在管理面板里一键添加。
-这样仓库保持轻量，同时还能用上社区维护的完整表情集合。
+仓库本身只保留两个示例表情（`google`、`alike`）作为模板，实际使用的表情通过外部仓库在管理面板里一键添加。
+这样仓库保持轻量，同时还能用上社区维护的完整表情集合（官方 contrib 仓库 13 个、太子的仓库 429 个等）。
 
 ## 功能
 
-- **表情生成 API**：文本 / 图片模板，支持 GIF，输出 OpenAPI 文档。
-- **Web 管理面板**：首次进入设置管理员密码，之后可管理表情、预览、搜索、封禁、添加仓库、检查更新。
-- **外部表情仓库**：在面板里填地址即可下载并加载第三方表情，支持更新检测与卸载。
+- **表情生成 API**：文本 / 图片模板，支持 GIF，自动生成 OpenAPI 文档。
+- **Web 管理面板**：首次进入设置管理员密码；支持表情预览、搜索、封禁、仓库管理与更新检查。
+- **外部表情仓库**：一键添加社区仓库，自动识别表情目录，支持更新检测、增量更新与卸载。
+- **常用仓库预设**：内置常用仓库列表，点击即装，不用记地址。
 - **更新查询 API**：可查询哪些表情有更新、更新了哪些文件，并直接拿到新代码，方便下游同步。
-- **统一的错误响应**：所有错误都带 `error.code`，便于程序化处理。
-- **移动端适配**：管理面板在手机上使用底部导航栏，布局自适应。
-- **uv 管理依赖**：依赖锁定、构建与发布统一走 uv。
+- **统一错误响应**：所有错误都带机器可读的 `error.code`。
+- **内置主题**：管理面板支持浅色 / 深色主题，移动端使用底部导航。
 
 ## 快速开始
 
-安装依赖：
-
 ```bash
 uv sync --locked
-```
-
-启动服务：
-
-```bash
 uv run meme run
 ```
 
-默认监听 `http://127.0.0.1:2233`。打开该地址即可看到管理面板，**首次进入会要求设置管理员密码**；
-API 文档在 [http://127.0.0.1:2233/docs](http://127.0.0.1:2233/docs)。
+打开 `http://127.0.0.1:2233` 即是管理面板，**首次进入会要求设置管理员密码**；API 文档在 `/docs`。
 
 内置示例表情：
 
@@ -41,32 +32,66 @@ API 文档在 [http://127.0.0.1:2233/docs](http://127.0.0.1:2233/docs)。
 | `alike` | 图片模板 | 1 张图片 | “你怎么跟……一样”模板 |
 
 ```bash
-# 生成文本表情
-uv run meme generate google --texts "Hello"
-
-# 生成图片表情
-uv run meme generate alike --images avatar.jpg
-
-# 查看已加载的表情
-uv run meme list
+uv run meme generate google --texts "Hello"      # 文本表情
+uv run meme generate alike --images avatar.jpg   # 图片表情
+uv run meme list                                 # 查看已加载表情
 ```
 
-## 添加表情的三种方式
+## 管理面板
 
-### 1. 在管理面板中添加外部仓库（推荐）
+打开首页即可使用，首次访问设置管理员密码（至少 8 位）。密码用 PBKDF2-HMAC-SHA256
+加盐哈希后保存在服务端数据目录；登录令牌是无状态 HMAC 签名，重启服务不会踢掉已登录会话。
 
-打开面板 → 「仓库」→「添加仓库」，填入 GitHub 地址（`owner/repo` 或完整 URL）：
+| 页面 | 功能 |
+| --- | --- |
+| 概览 | 表情 / 仓库 / 封禁数量统计，一键检查全部更新 |
+| 表情管理 | 网格预览、按 key/关键词/标签搜索、按状态与来源筛选、单个或批量封禁 |
+| 外部仓库 | 常用仓库一键添加、自定义地址、更新、重新加载、移除 |
+| 更新检查 | 按表情或按仓库查看变更，对比变更文件的新旧代码，一键应用 |
+| 设置 | 切换主题、修改密码、查看公开接口与错误码 |
 
-```
-MemeCrafters/meme-generator-contrib
-```
+**封禁**与删除不同：被封禁的表情仍然注册在服务里，只是不再出现在对外接口中，随时可以恢复。
 
-服务会下载该仓库中的表情并立即加载，无需重启。面板会显示每个仓库带来的表情，并支持
-**更新**、**重新加载**、**移除**。移除仓库时，它带来的表情会一并卸载。
+数据目录位置：
 
-> 私有仓库需要在启动服务前设置 `GITHUB_TOKEN` 环境变量（CI 里自动可用 `GH_TOKEN`）。
+| 平台 | 路径 |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\meme_generator` |
+| Linux | `~/.local/share/meme_generator` |
+| macOS | `~/Library/Application Support/meme_generator` |
 
-### 2. 放到本地目录
+其中 `admin.json` 是管理员凭据，`repos/` 是同步下来的外部仓库，`config.toml` 保存配置与封禁列表。
+忘记密码时删除 `admin.json` 并重启即可重新初始化。
+
+## 外部表情仓库
+
+### 在面板里添加（推荐）
+
+打开「外部仓库」页面，可以直接从常用仓库里一键添加：
+
+| 仓库 | 说明 |
+| --- | --- |
+| `MemeCrafters/meme-generator-contrib` | 官方额外表情仓库（13 个） |
+| `anyliew/meme_emoji` | 太子的仓库（429 个，表情目录为 `emoji/`） |
+| `jinjiao007/meme-generator-jj` | jinjiao007 的仓库（84 个，分支 `master`） |
+| `anyliew/meme_emoji_nsfw` | 太子的仓库 2（36 个） |
+
+也可以填任意 GitHub 地址（`owner/repo` 或完整 URL）或本地绝对路径。添加前可以点
+**探测仓库**，服务会先识别分支和表情目录、统计表情数量，确认无误再下载。
+
+不同仓库的表情目录约定不一样，服务会自动识别 `memes/`、`emoji/` 或直接放在根目录的情况，
+也可以在添加时手动指定。
+
+> 私有仓库或遇到 GitHub 接口限流时，在启动服务前设置 `GITHUB_TOKEN` 环境变量。
+
+### 更新机制
+
+检查更新走 GitHub 的文件树接口，只比对文件哈希，不下载内容——即使 429 个表情、541MB 的仓库，
+检查也只需一次请求。确认要更新时才下载内容，且只拉取发生变化的文件。
+
+新增或修改的表情在应用更新后会立即加载，**无需重启服务**；被封禁的表情保持封禁状态。
+
+### 放到本地目录
 
 在配置里声明目录，或直接在面板里填本地绝对路径：
 
@@ -75,7 +100,7 @@ MemeCrafters/meme-generator-contrib
 meme_dirs = ["/data/memes"]
 ```
 
-### 3. 放进本仓库
+### 放进本仓库
 
 在 `meme_generator/memes/<key>/__init__.py` 里定义并注册：
 
@@ -104,37 +129,11 @@ add_meme(
 )
 ```
 
-如果表情带静态图片资源，放在该表情目录下并刷新资源清单：
+表情带静态图片资源时，放在该表情目录下并刷新资源清单：
 
 ```bash
 uv run python tools/update_resource_list.py
 ```
-
-## 管理面板
-
-打开首页即可使用。首次访问设置管理员密码（至少 8 位），密码用 PBKDF2 加盐哈希后保存在
-服务端数据目录，登录令牌是无状态 HMAC 签名，重启服务不影响已登录会话。
-
-| 页面 | 功能 |
-| --- | --- |
-| 概览 | 表情总数、封禁数、仓库数，一键检查所有更新 |
-| 表情 | 网格展示与预览图，按 key / 关键词 / 标签搜索，按状态与来源筛选，单个或批量封禁/启用 |
-| 仓库 | 添加、更新、重新加载、移除外部仓库，查看每个仓库带来的表情 |
-| 更新 | 按表情和按仓库汇总的变更，可查看变更文件的新旧代码并一键应用 |
-| 设置 | 修改密码，查看服务信息与公开接口列表 |
-
-**封禁**与删除不同：被禁用的表情仍然注册在服务里，只是不再出现在对外接口中，方便随时恢复。
-
-数据目录位置：
-
-| 平台 | 路径 |
-| --- | --- |
-| Windows | `%LOCALAPPDATA%\meme_generator` |
-| Linux | `~/.local/share/meme_generator` |
-| macOS | `~/Library/Application Support/meme_generator` |
-
-其中 `admin.json` 是管理员凭据，`repos/` 是同步下来的外部仓库。忘记密码时删掉 `admin.json`
-重启即可重新初始化。
 
 ## API
 
@@ -170,17 +169,17 @@ curl -X POST http://127.0.0.1:2233/memes/google/ \
 **查询某个表情是否有更新、更新了哪些文件：**
 
 ```bash
-curl "http://127.0.0.1:2233/api/updates/google?include_content=true"
+curl "http://127.0.0.1:2233/api/updates?include_content=true"
 ```
 
-响应中每个表情都会列出状态（`new` / `updated` / `removed`）、涉及的文件路径，以及
-代码文件的新内容（`content`）与被覆盖前的内容（`previous_content`）。下游可以据此
-只拉取变化的表情，而不必同步整个仓库。
+响应中每个表情都会列出状态（`new` / `updated` / `removed`）、涉及的文件路径，以及代码文件的
+新内容（`content`）与被覆盖前的内容（`previous_content`）。下游据此可以只拉取变化的表情，
+而不必同步整个仓库。
 
 ### 管理接口（需登录）
 
-挂在 `/api/admin/*` 下，需要 `Authorization: Bearer <token>`。令牌也可以作为 `token`
-查询参数传递（预览图片在 `<img>` 中直接引用时用得上）。
+挂在 `/api/admin/*` 下，需要 `Authorization: Bearer <token>`。令牌也可作为 `token` 查询参数
+传递（预览图片在 `<img>` 中直接引用时用得上）。
 
 <details>
 <summary>展开查看接口列表</summary>
@@ -212,6 +211,8 @@ curl "http://127.0.0.1:2233/api/updates/google?include_content=true"
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/api/admin/repos` | 已注册仓库 |
+| `GET` | `/api/admin/repos/presets` | 常用仓库列表及安装状态 |
+| `POST` | `/api/admin/repos/preview` | 探测仓库：识别分支与表情目录 |
 | `POST` | `/api/admin/repos` | 添加仓库并下载 |
 | `DELETE` | `/api/admin/repos/{identifier}` | 移除仓库并卸载其表情 |
 | `POST` | `/api/admin/repos/{identifier}/update` | 更新，`apply=false` 时只检查 |
@@ -250,7 +251,7 @@ curl "http://127.0.0.1:2233/api/updates/google?include_content=true"
 | `ARG_MODEL_MISMATCH` | 额外参数校验失败 |
 | `VALIDATION_ERROR` | 请求格式错误（HTTP 422） |
 | `UNAUTHORIZED` / `TOKEN_INVALID` | 未登录 / 令牌无效 |
-| `REPO_NOT_FOUND` / `REPO_ALREADY_EXISTS` / `REPO_FETCH_FAILED` | 仓库相关错误 |
+| `REPO_NOT_FOUND` / `REPO_ALREADY_EXISTS` / `REPO_INVALID` / `REPO_FETCH_FAILED` | 仓库相关错误 |
 
 ## 配置
 
@@ -262,7 +263,7 @@ curl "http://127.0.0.1:2233/api/updates/google?include_content=true"
 | `MEME_GENERATOR_DATA_DIR` | 数据目录（管理员凭据、外部仓库） |
 | `MEME_GENERATOR_CONFIG_DIR` | 配置目录 |
 | `MEME_GENERATOR_CACHE_DIR` | 缓存目录 |
-| `GITHUB_TOKEN` / `GH_TOKEN` | 访问私有仓库时使用 |
+| `GITHUB_TOKEN` / `GH_TOKEN` | 访问私有仓库或提高 GitHub 接口配额 |
 
 ```toml
 [meme]
@@ -293,23 +294,33 @@ log_level = "INFO"
 
 ## Docker
 
+用 Compose 启动（推荐）：
+
 ```bash
-docker build -t meme-generator .
-docker run --rm -p 2233:2233 -v meme-data:/data meme-generator
+docker compose up -d
 ```
 
-容器内监听 `0.0.0.0:2233`，配置与管理员凭据都放在 `/data` 卷里，重建容器不会丢失。
+或者直接用 Docker：
+
+```bash
+docker build -t meme-generator .
+docker run -d --name meme-generator -p 2233:2233 -v meme-data:/data meme-generator
+```
+
+容器内监听 `0.0.0.0:2233`。**配置、管理员凭据与同步的外部仓库都保存在 `/data` 卷**，
+重建容器不会丢失，所以务必挂载该卷。
+
+`docker-compose.yml` 里已配置健康检查，并预留了 `GITHUB_TOKEN`、百度翻译等可选环境变量。
 
 ## 开发
 
 管理面板源码在 `web/`（React + Vite + TypeScript）：
 
 ```bash
-# 前端开发模式，自动代理到本地 2233 端口的后端
-cd web && npm install && npm run dev
-
-# 构建到 meme_generator/web_dist，随 Python 包一起分发
-cd web && npm run build
+cd web
+npm install
+npm run dev     # 开发模式，自动代理到本地 2233 的后端
+npm run build   # 构建到 meme_generator/web_dist，随包分发
 ```
 
 后端：
@@ -319,10 +330,9 @@ uv sync --locked
 uv run ruff check .
 uv run ruff format .
 uv run pytest
-uv build
 ```
 
-提交前至少运行 `uv run ruff check .` 和 `uv run pytest`。
+提交前至少运行 `uv run ruff check .` 和 `uv run pytest`（CI 会执行同样的检查，另加前端类型检查与构建）。
 
 ## 已知问题
 
@@ -338,7 +348,7 @@ uv build
 
 ## 鸣谢
 
-本项目的表情生成部分源自 [MemeCrafters/meme-generator](https://github.com/MemeCrafters/meme-generator)，
+表情生成部分源自 [MemeCrafters/meme-generator](https://github.com/MemeCrafters/meme-generator)，
 表情资源整合自 [nonebot-plugin-petpet](https://github.com/noneplugin/nonebot-plugin-petpet) 和
 [nonebot-plugin-memes](https://github.com/noneplugin/nonebot-plugin-memes)。
 
