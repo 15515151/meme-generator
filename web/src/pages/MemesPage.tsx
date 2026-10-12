@@ -323,9 +323,10 @@ function MemeCard({
       </div>
 
       <div className="meme-body">
-        <label className="switch" style={{ gap: 7 }}>
+        {/* 尺寸通过 CSS 变量传入，旋钮位置会跟着算，不再出现溢出 */}
+        <label className="switch" style={{ '--switch-w': '32px', '--switch-h': '18px' } as React.CSSProperties}>
           <input type="checkbox" checked={selected} onChange={onSelect} />
-          <span className="switch-track" style={{ width: 30, height: 17 }} />
+          <span className="switch-track" />
           <span className="meme-key">{meme.key}</span>
         </label>
 

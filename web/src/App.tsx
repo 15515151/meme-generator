@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 
 import { api, type Health } from './api'
 import { useAuth } from './context/AuthContext'
@@ -26,7 +26,7 @@ type Tab = 'dashboard' | 'memes' | 'repos' | 'updates' | 'settings'
 const NAV: {
   id: Tab
   label: string
-  icon: (props: { size?: number }) => JSX.Element
+  icon: (props: { size?: number }) => ReactElement
   title: string
   sub: string
 }[] = [
