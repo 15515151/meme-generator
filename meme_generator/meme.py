@@ -108,10 +108,16 @@ class Meme:
     def __call__(
         self,
         *,
-        images: Union[list[str], list[Path], list[bytes], list[BytesIO]] = [],
-        texts: list[str] = [],
-        args: dict[str, Any] = {},
+        images: Optional[
+            Union[list[str], list[Path], list[bytes], list[BytesIO]]
+        ] = None,
+        texts: Optional[list[str]] = None,
+        args: Optional[dict[str, Any]] = None,
     ) -> BytesIO:
+        images = images or []
+        texts = texts or []
+        args = args or {}
+
         if not (
             self.params_type.min_images <= len(images) <= self.params_type.max_images
         ):
@@ -145,7 +151,8 @@ class Meme:
 
         return self.function(imgs, texts, model)
 
-    def generate_preview(self, *, args: dict[str, Any] = {}) -> BytesIO:
+    def generate_preview(self, *, args: Optional[dict[str, Any]] = None) -> BytesIO:
+        args = args or {}
         default_images = [random_image() for _ in range(self.params_type.min_images)]
         default_texts = (
             self.params_type.default_texts.copy()

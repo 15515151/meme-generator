@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 
 import filetype
-from fastapi import Depends, FastAPI, Form, HTTPException, Response, UploadFile
-from pydantic import BaseModel, ValidationError
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
+from pydantic import BaseModel, Field, ValidationError
 
 from meme_generator.compat import model_dump, model_json_schema, type_validate_python
 from meme_generator.config import meme_config
@@ -18,8 +18,6 @@ from meme_generator.manager import get_meme, get_meme_keys, get_memes
 from meme_generator.meme import CommandShortcut, Meme, MemeArgsModel, ParserOption
 from meme_generator.utils import MemeProperties, render_meme_list, run_sync
 from meme_generator.version import __version__
-
-app = FastAPI()
 
 
 class MemeArgsResponse(BaseModel):
@@ -47,7 +45,7 @@ class MemeInfoResponse(BaseModel):
     date_modified: datetime
 
 
-def register_router(meme: Meme):
+def register_meme_route(api: FastAPI, meme: Meme) -> None:
     if args_type := meme.params_type.args_type:
         args_model = args_type.args_model
     else:
@@ -57,7 +55,7 @@ def register_router(meme: Meme):
         args: Optional[str] = Form(default=json.dumps(model_dump(args_model()))),
     ):
         if not args:
-            return MemeArgsModel()
+            return args_model()
         try:
             model = type_validate_python(args_model, json.loads(args))
         except ValidationError as e:
@@ -65,16 +63,17 @@ def register_router(meme: Meme):
             raise HTTPException(status_code=552, detail=e.message)
         return model
 
-    @app.post(f"/memes/{meme.key}/")
+    @api.post(f"/memes/{meme.key}/", tags=["memes"])
     async def _(
-        images: list[UploadFile] = [],
-        texts: list[str] = meme.params_type.default_texts,
+        images: Optional[list[UploadFile]] = File(default=None),
+        texts: Optional[list[str]] = Form(default=None),
         args: args_model = Depends(args_checker),  # type: ignore
     ):
         imgs: list[bytes] = []
-        for image in images:
+        for image in images or []:
             imgs.append(await image.read())
 
+        texts = texts if texts is not None else meme.params_type.default_texts
         texts = [text for text in texts if text]
 
         assert isinstance(args, args_model)
@@ -94,23 +93,24 @@ def register_router(meme: Meme):
 class MemeKeyWithProperties(BaseModel):
     meme_key: str
     disabled: bool = False
-    labels: list[Literal["new", "hot"]] = []
+    labels: list[Literal["new", "hot"]] = Field(default_factory=list)
 
 
-default_meme_list = [
-    MemeKeyWithProperties(meme_key=meme.key)
-    for meme in sorted(get_memes(), key=lambda meme: meme.key)
-]
+def default_meme_list() -> list[MemeKeyWithProperties]:
+    return [
+        MemeKeyWithProperties(meme_key=meme.key)
+        for meme in sorted(get_memes(), key=lambda meme: meme.key)
+    ]
 
 
 class RenderMemeListRequest(BaseModel):
-    meme_list: list[MemeKeyWithProperties] = default_meme_list
+    meme_list: list[MemeKeyWithProperties] = Field(default_factory=default_meme_list)
     text_template: str = "{keywords}"
     add_category_icon: bool = True
 
 
-def register_routers():
-    @app.post("/memes/render_list")
+def register_routes(api: FastAPI) -> None:
+    @api.post("/memes/render_list", tags=["memes"])
     def _(params: RenderMemeListRequest = RenderMemeListRequest()):
         try:
             meme_list = [
@@ -132,15 +132,15 @@ def register_routers():
         media_type = str(filetype.guess_mime(content)) or "text/plain"
         return Response(content=content, media_type=media_type)
 
-    @app.get("/meme/version")
+    @api.get("/meme/version", tags=["meta"])
     def _():
         return __version__
 
-    @app.get("/memes/keys")
+    @api.get("/memes/keys", tags=["memes"])
     def _():
         return get_meme_keys()
 
-    @app.get("/memes/{key}/info")
+    @api.get("/memes/{key}/info", tags=["memes"])
     def _(key: str):
         try:
             meme = get_meme(key)
@@ -175,7 +175,7 @@ def register_routers():
             date_modified=meme.date_modified,
         )
 
-    @app.get("/memes/{key}/preview")
+    @api.get("/memes/{key}/preview", tags=["memes"])
     async def _(key: str):
         try:
             meme = get_meme(key)
@@ -188,13 +188,25 @@ def register_routers():
         return Response(content=content, media_type=media_type)
 
     for meme in sorted(get_memes(), key=lambda meme: meme.key):
-        register_router(meme)
+        register_meme_route(api, meme)
+
+
+def create_app() -> FastAPI:
+    api = FastAPI(
+        title="meme-generator",
+        version=__version__,
+        description="A small meme generation API with pluggable meme templates.",
+    )
+    register_routes(api)
+    return api
+
+
+app = create_app()
 
 
 def run_server():
     import uvicorn
 
-    register_routers()
     uvicorn.run(
         app,
         host=meme_config.server.host,

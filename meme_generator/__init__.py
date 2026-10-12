@@ -16,8 +16,18 @@ from meme_generator.meme import ParserArg as ParserArg
 from meme_generator.meme import ParserOption as ParserOption
 from meme_generator.version import __version__ as __version__
 
-if config.meme.load_builtin_memes:
-    for path in (Path(__file__).parent / "memes").iterdir():
+
+def _load_builtin_memes() -> None:
+    memes_dir = Path(__file__).parent / "memes"
+    for path in sorted(memes_dir.iterdir(), key=lambda item: item.name):
+        if not path.is_dir() or path.name.startswith("_"):
+            continue
+        if not (path / "__init__.py").is_file():
+            continue
         load_meme(f"meme_generator.memes.{path.name}")
+
+
+if config.meme.load_builtin_memes:
+    _load_builtin_memes()
 for meme_dir in config.meme.meme_dirs:
     load_memes(meme_dir)
