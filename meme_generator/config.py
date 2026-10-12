@@ -52,6 +52,9 @@ class TranslatorConfig(BaseModel):
 class ServerConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 2233
+    # 对外访问地址，用于在 API 文档里生成可直接复制的请求示例。
+    # 留空时前端会退回当前浏览器地址。
+    api_domain: str = ""
 
 
 class LogConfig(BaseModel):

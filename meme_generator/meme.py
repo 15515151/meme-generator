@@ -16,7 +16,47 @@ from .exception import (
     OpenImageFailed,
     TextNumberMismatch,
     TextOrNameNotEnough,
+    TextOverLength,
 )
+
+ELLIPSIS = "…"
+
+
+def _truncate_texts(texts: list[str], offending: str) -> Optional[list[str]]:
+    """把超长的那段文本截短并加省略号。
+
+    优先按换行分段截断（保留第一行），否则按字符数减半。返回 ``None`` 表示
+    已经无法再截短。
+    """
+    result = list(texts)
+    target = offending
+    index = next((i for i, text in enumerate(result) if text == target), None)
+
+    # 报错文本可能只是其中一段，找不到时退而修改最长的一段
+    if index is None:
+        if not result:
+            return None
+        index = max(range(len(result)), key=lambda i: len(result[i]))
+        target = result[index]
+
+    if "\n" in target:
+        shortened = target.split("\n", 1)[0].rstrip()
+        if shortened and shortened != target:
+            result[index] = shortened + ELLIPSIS
+            return result
+        # 只有一个换行且首行为空时按字符截断
+        target = shortened or target.strip()
+
+    limit = max(len(target) // 2, 1)
+    if len(target) <= limit:
+        return None
+    shortened = target[:limit].rstrip() + ELLIPSIS
+    if shortened == result[index]:
+        return None
+    result[index] = shortened
+    return result
+
+
 from .utils import random_image, random_text
 
 
@@ -164,11 +204,34 @@ class Meme:
             else [random_text() for _ in range(self.params_type.min_texts)]
         )
 
+        # 预览最多重试的次数，避免极端情况下无限循环
+        remaining = 12
+        # 截断也救不回来时（例如文本区域太窄，连单个汉字都放不下）用的占位文本。
+        # 预览只用于管理面板展示，出图比文案准确更重要。
+        ascii_fallbacks = ["preview", "abc", "a"]
+
         def _generate_preview(images: list[bytes], texts: list[str]):
+            nonlocal remaining
             try:
                 return self.__call__(images=images, texts=texts, args=args)
             except TextOrNameNotEnough:
                 texts.append(random_text())
                 return _generate_preview(images, texts)
+            except TextOverLength as e:
+                # 有些表情自带的默认文本超过它自身的长度限制（例如把渲染高度
+                # 限制在固定像素的表情），这里逐次截断并加省略号重试，让预览
+                # 始终能出图，而不是把这类表情永久标记为“预览失败”。
+                remaining -= 1
+                if remaining <= 0:
+                    raise
+                shortened = _truncate_texts(texts, e.text)
+                if shortened is not None:
+                    return _generate_preview(images, shortened)
+                # 截断已到极限（只剩一个字还是过长），改用短 ASCII 占位
+                if ascii_fallbacks:
+                    count = max(len(texts), self.params_type.min_texts, 1)
+                    placeholder = ascii_fallbacks.pop(0)
+                    return _generate_preview(images, [placeholder] * count)
+                raise
 
         return _generate_preview(default_images, default_texts)
