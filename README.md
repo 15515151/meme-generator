@@ -10,6 +10,7 @@
 - **表情生成 API**：文本 / 图片模板，支持 GIF，自动生成 OpenAPI 文档。
 - **Web 管理面板**：首次进入设置管理员密码；支持表情预览、搜索、封禁、仓库管理与更新检查。
 - **外部表情仓库**：一键添加社区仓库，自动识别表情目录，支持更新检测、增量更新与卸载。
+- **GitHub 加速源**：给仓库设置镜像前缀（如 `https://ghfast.top/`，也可以填自建镜像），加速源不可用时自动退回直连。
 - **常用仓库预设**：内置常用仓库列表，点击即装，不用记地址。
 - **更新查询 API**：可查询哪些表情有更新、更新了哪些文件，并直接拿到新代码，方便下游同步。
 - **统一错误响应**：所有错误都带机器可读的 `error.code`。
@@ -66,9 +67,9 @@ uv run meme list                                 # 查看已加载表情
 | --- | --- |
 | 概览 | 表情 / 仓库 / 封禁数量统计，一键检查全部更新 |
 | 表情管理 | 网格预览、按 key/关键词/标签搜索、按状态与来源筛选、单个或批量封禁 |
-| 外部仓库 | 常用仓库一键添加、自定义地址、更新、重新加载、移除 |
+| 外部仓库 | 常用仓库一键添加、自定义地址、设置加速源、更新、重新加载、移除 |
 | 更新检查 | 按表情或按仓库查看变更，对比变更文件的新旧代码，一键应用 |
-| 设置 | 切换主题、修改密码、查看公开接口与错误码 |
+| 设置 | 切换主题、修改密码、配置 GitHub 加速源、查看公开接口与错误码 |
 
 **封禁**与删除不同：被封禁的表情仍然注册在服务里，只是不再出现在对外接口中，随时可以恢复。
 
@@ -147,6 +148,39 @@ Linux 设置了 `XDG_DATA_HOME` 时，默认数据目录为 `$XDG_DATA_HOME/meme
 也可以在添加时手动指定。
 
 > 私有仓库或遇到 GitHub 接口限流时，在启动服务前设置 `GITHUB_TOKEN` 环境变量。
+
+### 加速源（GitHub 镜像）
+
+国内访问 GitHub 不稳定时，可以给仓库设置一个**加速源**。加速源就是一个纯粹的地址前缀，
+拼在真实地址前面：
+
+| | 地址 |
+| --- | --- |
+| 原始仓库 | `https://github.com/MemeCrafters/meme-generator-contrib` |
+| 加速源 | `https://ghfast.top/` |
+| 实际请求 | `https://ghfast.top/https://github.com/MemeCrafters/meme-generator-contrib` |
+
+三种设置方式：
+
+1. **外部仓库页顶部横幅**：一眼看到当前全局加速源，点「设置加速源」直接改。
+2. **单个仓库**：在「外部仓库」页面点某个仓库的**加速源**按钮单独设置，覆盖全局默认。
+3. **设置页 / 配置文件**：「设置」→「GitHub 加速源」填一次全局生效；等价于 `config.toml`
+   的 `[repo] github_proxy`，或启动前设置 `GITHUB_PROXY` 环境变量。
+
+加速源填什么都行（内置预设只是几个常见的公共镜像，也可以填自建的那一个），
+只保存在服务端配置里，不会进代码仓库。添加仓库时也能在「加速源」里选或直接填；
+如果把手头加速好的整串地址（`https://ghfast.top/https://github.com/owner/repo`）
+粘进仓库地址，服务会自动拆成两栏。拿不准哪个加速源快，点**测试加速源**会分别访问
+GitHub 接口、raw 内容与归档，并和直连比耗时。
+
+加速源是「加速源优先、直连兜底」：加速源连不上、返回错误页或者返回的不是合法归档时，
+服务会自动退回直连，不会因为加速源挂掉而同步失败，也不需要清空加速源配置。
+换加速源不会导致表情重复下载——文件哈希来自 GitHub 自身，与访问途径无关。
+
+不同加速源支持的端点并不一样：有的只代理 `raw.githubusercontent.com`，不代理归档
+（`codeload.github.com`）或接口（`api.github.com`）。服务按主机分别判断可用性，
+某一类请求不可用只会让它走直连，其余照常走加速源；「测试加速源」会逐条列出结果，
+日志里也会记录每个主机最终走的是加速源还是直连。
 
 ### 更新机制
 
@@ -279,8 +313,11 @@ curl "http://127.0.0.1:2233/api/updates?include_content=true"
 | --- | --- | --- |
 | `GET` | `/api/admin/repos` | 已注册仓库 |
 | `GET` | `/api/admin/repos/presets` | 常用仓库列表及安装状态 |
+| `GET` | `/api/admin/repos/proxies` | 可选的加速源（全局默认 + 预设） |
+| `POST` | `/api/admin/repos/proxy-test` | 测试加速源可用性与耗时 |
 | `POST` | `/api/admin/repos/preview` | 探测仓库：识别分支与表情目录 |
-| `POST` | `/api/admin/repos` | 添加仓库并下载 |
+| `POST` | `/api/admin/repos` | 添加仓库并下载，`proxy` 指定加速源 |
+| `PATCH` | `/api/admin/repos/{identifier}` | 修改加速源或显示名，可顺带重新拉取 |
 | `DELETE` | `/api/admin/repos/{identifier}` | 移除仓库并卸载其表情 |
 | `POST` | `/api/admin/repos/{identifier}/update` | 更新，`apply=false` 时只检查 |
 | `POST` | `/api/admin/repos/{identifier}/reload` | 从本地内容重新加载表情 |
@@ -341,6 +378,7 @@ Linux 设置了 `XDG_CONFIG_HOME` 时，默认配置文件为 `$XDG_CONFIG_HOME/
 | `MEME_GENERATOR_CONFIG_DIR` | 配置目录 |
 | `MEME_GENERATOR_CACHE_DIR` | 缓存目录 |
 | `GITHUB_TOKEN` / `GH_TOKEN` | 访问私有仓库或提高 GitHub 接口配额 |
+| `GITHUB_PROXY` | GitHub 加速源前缀（如 `https://ghfast.top/`），等价于 `[repo] github_proxy` |
 
 ```toml
 [meme]
@@ -352,6 +390,14 @@ meme_disabled_list = []
 [resource]
 resource_url = ""
 resource_urls = []
+
+[repo]
+# GitHub 加速源前缀，形如 https://ghfast.top/ ；留空直连 GitHub。
+# 这里填自己的镜像也可以，只写进本机配置，不会进代码仓库。
+# 单个仓库可以在管理面板里单独覆盖这个默认值。
+github_proxy = ""
+# 管理面板里可点选的加速源
+proxy_presets = ["https://ghfast.top/", "https://gh-proxy.com/", "https://ghproxy.net/"]
 
 [gif]
 gif_max_size = 10
@@ -391,7 +437,42 @@ docker run -d --name meme-generator -p 2233:2233 -v meme-data:/data meme-generat
 重建容器时继续挂载同一个卷即可保留这些数据。
 `/data/config.toml` 在每次启动时由环境变量和模板重新生成，直接修改的配置与面板维护的封禁列表会被覆盖。
 
-`docker-compose.yml` 里已配置健康检查，并预留了 `GITHUB_TOKEN`、百度翻译等可选环境变量。
+`docker-compose.yml` 里已配置健康检查，并预留了 `GITHUB_TOKEN`、`GITHUB_PROXY`、百度翻译等可选环境变量。
+
+### 自动构建与推送（GitHub Actions）
+
+`.github/workflows/docker.yml` 负责自动构建镜像；构建脚本 `npm run build` 与
+依赖安装都在镜像内完成，所以推送的镜像自带最新的管理面板。
+
+| 触发 | 行为 |
+| --- | --- |
+| Pull Request、非 `main` 分支推送 | 只构建 `linux/amd64` 并跑冒烟测试，不推送 |
+| 推送到 `main` | 构建 `linux/amd64` + `linux/arm64` 并推送 `latest`、`sha-<短提交>` |
+| 推送 `v*` tag | 额外推送 `1.2.3`、`1.2` 这类版本号标签 |
+| Actions → Docker → Run workflow | 手动触发，可选择是否推送 |
+
+镜像地址：
+
+- GHCR（始终推送，无需任何配置）：`ghcr.io/<owner>/meme-generator`
+- Docker Hub（可选）：`<DOCKERHUB_USERNAME>/meme-generator`
+
+要用 Docker Hub，在仓库 `Settings → Secrets and variables → Actions` 里添加
+`DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`（Docker Hub 后台创建的 Access Token，不要用登录密码）；
+没有配置时只推 GHCR，工作流不会失败。推送完成后还有一个 `verify` 任务把镜像拉下来跑一遍
+冒烟测试（服务启动、管理面板、生成一张表情），确认登记到镜像仓库里的产物真的能跑。
+
+发布新版本时打 tag 即可触发多架构构建：
+
+```bash
+git tag v0.1.17 && git push origin v0.1.17
+```
+
+镜像冒烟测试的脚本是 `.github/scripts/smoke-test.sh`，本地构建后也能直接复用：
+
+```bash
+docker build -t meme-generator:local .
+bash .github/scripts/smoke-test.sh meme-generator:local /tmp/meme-data 2233
+```
 
 ## 常见问题（Q&A）
 
@@ -449,6 +530,8 @@ docker inspect meme-generator --format '{{json .Mounts}}'
 确认仓库地址、分支和表情目录正确，并检查服务端日志与网络连接。
 私有仓库需要具有相应读取权限的令牌；遇到限流时，可在服务启动前设置 `GITHUB_TOKEN`，
 Docker 部署可通过 `-e GITHUB_TOKEN=你的令牌` 传入，然后重新创建容器并挂载原数据卷。
+如果是连不上 GitHub（超时、连接被重置），在「设置」里配置 GitHub 加速源，
+或给某个仓库单独设置加速源，并发前先用「测试加速源」确认它确实可用。
 
 ## 开发
 

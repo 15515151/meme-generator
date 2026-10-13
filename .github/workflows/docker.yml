@@ -8,18 +8,31 @@ on:
       - "v*"
   pull_request:
   workflow_dispatch:
+    inputs:
+      push:
+        description: "构建后推送到镜像仓库（关闭则只验证能否构建）"
+        type: boolean
+        default: true
+
+# 同一分支 / tag 上只保留最新一轮，避免连续推送时排队堆叠
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  # PR 与分支推送只验证镜像能构建成功，不推送到仓库。
+  # PR、非 main 分支推送、手动触发且关闭 push 时：只验证镜像能构建并跑起来，不推送。
   # 这样 Dockerfile 的改动在合并前就能被验证（本地没装 Docker 也能查）。
   build:
-    name: Build image
+    name: Build & smoke test
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') && github.ref != 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.push == false)
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -39,39 +52,24 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Smoke test the image
-        run: |
-          set -e
-          docker run -d --name meme-ci -p 2233:2233 -v /tmp/meme-data:/data meme-generator:ci
-          # 等待服务起来，最多 90 秒
-          for i in $(seq 1 45); do
-            if curl -fsS http://127.0.0.1:2233/meme/version > /tmp/version.json 2>/dev/null; then
-              echo "service is up after ${i} attempt(s)"
-              break
-            fi
-            sleep 2
-          done
-          cat /tmp/version.json
-          echo ""
-          # 管理面板与其接口都应可用
-          curl -fsS -o /dev/null -w "UI: %{http_code}\n" http://127.0.0.1:2233/
-          curl -fsS http://127.0.0.1:2233/api/admin/status
-          echo ""
-          curl -fsS -X POST http://127.0.0.1:2233/memes/google/ -F "texts=CI" -o /tmp/out.jpg
-          file /tmp/out.jpg
-          docker logs meme-ci | tail -20
-          docker rm -f meme-ci
+        run: bash ./.github/scripts/smoke-test.sh meme-generator:ci /tmp/meme-ci-data
 
-  # 打 tag 时构建多架构镜像并推送到 Docker Hub 与 GHCR。
-# 需要在仓库 Settings → Secrets and variables → Actions 中配置：
-#   DOCKERHUB_USERNAME  你的 Docker Hub 用户名
-#   DOCKERHUB_TOKEN     在 Docker Hub 创建的 Access Token（不要用登录密码）
-# 没配置 Docker Hub 凭据时，只推送到 GHCR，工作流不会失败。
+  # main 分支推送与打 tag 时构建多架构镜像并推送。
+  # GHCR 始终推送（用内置 GITHUB_TOKEN，无需额外配置）；
+  # Docker Hub 需要在仓库 Settings → Secrets and variables → Actions 中配置：
+  #   DOCKERHUB_USERNAME  你的 Docker Hub 用户名
+  #   DOCKERHUB_TOKEN     在 Docker Hub 创建的 Access Token（不要用登录密码）
+  # 没配 Docker Hub 凭据时只推 GHCR，工作流不会失败。
   publish:
     name: Publish image
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: >-
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) ||
+      (github.event_name == 'workflow_dispatch' && inputs.push)
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_ENABLED: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -80,11 +78,11 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
-        if: env.DOCKERHUB_USERNAME != ''
+        if: env.DOCKERHUB_ENABLED == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -97,14 +95,16 @@ jobs:
         uses: docker/metadata-action@v5
         id: metadata
         with:
+          # metadata-action 会把镜像名转成小写，GHCR 对大小写敏感
           images: |
             ghcr.io/${{ github.repository }}
-            name=${{ env.DOCKERHUB_USERNAME }}/meme-generator,enable=${{ env.DOCKERHUB_USERNAME != '' }}
+            name=${{ env.DOCKERHUB_USERNAME }}/meme-generator,enable=${{ env.DOCKERHUB_ENABLED == 'true' }}
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,format=short
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -112,7 +112,50 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          # 自用镜像不需要 attestation，关掉可以显著缩短多架构构建时间
+          provenance: false
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          first=$(echo "${{ steps.metadata.outputs.tags }}" | head -n 1)
+          {
+            echo "### 已推送镜像"
+            echo ""
+            echo '```'
+            echo "${{ steps.metadata.outputs.tags }}"
+            echo '```'
+            echo ""
+            echo "- 平台：linux/amd64, linux/arm64"
+            echo "- 提交：\`${{ github.sha }}\`"
+            echo "- 拉取：\`docker pull ${first}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # 推送完再把镜像拉下来跑一遍：确认登记到镜像仓库里的产物真的能启动。
+  verify:
+    name: Verify published image
+    runs-on: ubuntu-latest
+    needs: publish
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve published image
+        run: |
+          # 取 publish 阶段推送的 sha 标签，镜像名统一转小写
+          image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):sha-$(echo '${{ github.sha }}' | cut -c1-7)"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          docker pull "$image"
+
+      - name: Smoke test the published image
+        run: bash ./.github/scripts/smoke-test.sh "$IMAGE" /tmp/meme-verify-data
