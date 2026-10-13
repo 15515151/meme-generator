@@ -16,6 +16,8 @@ services:
       LOG_LEVEL: INFO
       # 访问私有仓库或在 GitHub 接口限流时提高配额（可选）
       # GITHUB_TOKEN: ghp_xxxxxxxxxxxx
+      # GitHub 加速源，留空直连（可选，也可以稍后在管理面板里设置）
+      # GITHUB_PROXY: https://ghfast.top/
       # 百度翻译（可选，部分表情需要）
       BAIDU_TRANS_APPID: ""
       BAIDU_TRANS_APIKEY: ""

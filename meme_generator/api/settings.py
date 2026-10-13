@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from ..config import config_file_path, meme_config
 from ..errors import ApiError, ErrorCode
 from ..log import logger
+from ..repos import normalize_proxy, repo_manager
 from .deps import require_admin
 
 router = APIRouter(prefix="/admin/settings", tags=["admin-settings"])
@@ -21,14 +22,26 @@ class ServerSettings(BaseModel):
     port: int
 
 
+class RepoSettings(BaseModel):
+    github_proxy: str = Field(
+        description="全局 GitHub 加速源前缀，留空表示直连；单个仓库可以单独覆盖"
+    )
+    effective_proxy: str = Field(description="当前实际生效的加速源")
+    proxy_presets: list[str] = Field(description="管理面板里可选的加速源")
+
+
 class SettingsResponse(BaseModel):
     server: ServerSettings
+    repo: RepoSettings
     config_file: str
 
 
 class UpdateSettingsRequest(BaseModel):
     api_domain: Optional[str] = Field(
         default=None, description="留空字符串可清空为「使用当前地址」"
+    )
+    github_proxy: Optional[str] = Field(
+        default=None, description="留空字符串可清空为直连"
     )
 
 
@@ -39,6 +52,11 @@ def _response() -> SettingsResponse:
             api_domain=server.api_domain,
             host=server.host,
             port=server.port,
+        ),
+        repo=RepoSettings(
+            github_proxy=meme_config.repo.github_proxy,
+            effective_proxy=repo_manager.default_proxy(),
+            proxy_presets=list(meme_config.repo.proxy_presets),
         ),
         config_file=str(config_file_path),
     )
@@ -63,6 +81,19 @@ def update_settings(data: UpdateSettingsRequest, _: str = Depends(require_admin)
             )
         meme_config.server.api_domain = value
         logger.info(f"API domain set to {value or '(empty)'}")
+
+    if data.github_proxy is not None:
+        try:
+            value = normalize_proxy(data.github_proxy)
+        except ValueError as e:
+            raise ApiError(
+                ErrorCode.VALIDATION_ERROR,
+                str(e),
+                status_code=400,
+                context={"field": "github_proxy"},
+            )
+        meme_config.repo.github_proxy = value
+        logger.info(f"Global github proxy set to {value or '(direct)'}")
 
     try:
         meme_config.dump()

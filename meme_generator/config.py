@@ -26,6 +26,20 @@ DEFAULT_RESOURCE_URLS = [
 ]
 
 
+# 内置的常用 GitHub 加速源，管理面板里可以直接点选。都是「前缀式」加速：
+# 加速源 + 原始地址，例如 https://ghfast.top/https://github.com/owner/repo 。
+# 想用自己的加速源（自建或别处的），在管理面板里直接填即可：只写进本机配置，
+# 不会进代码仓库，也能随时换掉。
+DEFAULT_PROXY_PRESETS = [
+    "https://ghfast.top/",
+    "https://gh-proxy.com/",
+    "https://ghproxy.net/",
+    "https://hub.gitmirror.com/",
+    "https://gh.ddlc.top/",
+    "https://ghproxy.cc/",
+]
+
+
 class MemeConfig(BaseModel):
     load_builtin_memes: bool = True
     meme_dirs: list[Path] = Field(default_factory=list)
@@ -36,6 +50,19 @@ class ResourceConfig(BaseModel):
     resource_url: Optional[str] = None
     resource_urls: list[str] = Field(
         default_factory=lambda: DEFAULT_RESOURCE_URLS.copy()
+    )
+
+
+class RepoConfig(BaseModel):
+    """外部仓库（GitHub）相关的配置。"""
+
+    # 全局 GitHub 加速源，形如 ``https://ghfast.top/``。它是纯粹的地址前缀，
+    # 拼接后得到 ``https://ghfast.top/https://github.com/owner/repo``。
+    # 可以用环境变量 GITHUB_PROXY 提供初始值；单个仓库还能在管理面板里单独覆盖。
+    github_proxy: str = Field(default_factory=lambda: os.getenv("GITHUB_PROXY", ""))
+    # 管理面板里可选用的加速源；想换成自己的，改这里即可。
+    proxy_presets: list[str] = Field(
+        default_factory=lambda: DEFAULT_PROXY_PRESETS.copy()
     )
 
 
@@ -64,6 +91,7 @@ class LogConfig(BaseModel):
 class Config(BaseModel):
     meme: MemeConfig = Field(default_factory=MemeConfig)
     resource: ResourceConfig = Field(default_factory=ResourceConfig)
+    repo: RepoConfig = Field(default_factory=RepoConfig)
     gif: GifConfig = Field(default_factory=GifConfig)
     translate: TranslatorConfig = Field(default_factory=TranslatorConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)

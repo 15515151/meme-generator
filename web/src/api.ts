@@ -157,6 +157,9 @@ export interface RepoInfo {
   ref: string
   enabled: boolean
   meme_dir: string
+  proxy: string
+  effective_proxy: string
+  accelerated_url: string
   installed_at: number | null
   updated_at: number | null
   file_count: number
@@ -181,10 +184,37 @@ export interface RepoPreview {
   name: string
   ref: string
   meme_dir: string
+  proxy: string
+  effective_proxy: string
   file_count: number
   meme_count: number
   meme_keys: string[]
   installed: boolean
+}
+
+export interface ProxyProbe {
+  label: string
+  url: string
+  ok: boolean
+  status: number
+  elapsed_ms: number
+  via_proxy: boolean
+  error?: string
+}
+
+export interface ProxyTestResult {
+  proxy: string
+  identifier: string
+  ref: string
+  accelerated: ProxyProbe[]
+  direct: ProxyProbe[]
+  usable: boolean
+  all_ok: boolean
+}
+
+export interface ProxyPresets {
+  default: string
+  items: string[]
 }
 
 export interface UpdateFile {
@@ -199,6 +229,7 @@ export interface UpdateFile {
 export interface UpdateResult {
   identifier: string
   name?: string
+  proxy?: string
   has_update: boolean
   changes: {
     added: string[]
@@ -244,8 +275,15 @@ export interface ServerSettings {
   port: number
 }
 
+export interface RepoSettings {
+  github_proxy: string
+  effective_proxy: string
+  proxy_presets: string[]
+}
+
 export interface SettingsResponse {
   server: ServerSettings
+  repo: RepoSettings
   config_file: string
 }
 
@@ -308,15 +346,29 @@ export const api = {
   listRepos: () => request<{ total: number; items: RepoInfo[] }>('/api/admin/repos'),
   listPresets: () =>
     request<{ total: number; items: RepoPreset[] }>('/api/admin/repos/presets'),
-  previewRepo: (url: string, ref: string) =>
+  listProxies: () => request<ProxyPresets>('/api/admin/repos/proxies'),
+  testProxy: (proxy: string, identifier: string, ref: string) =>
+    request<ProxyTestResult>('/api/admin/repos/proxy-test', {
+      method: 'POST',
+      body: { proxy, identifier, ref },
+    }),
+  previewRepo: (url: string, ref: string, proxy: string) =>
     request<RepoPreview>('/api/admin/repos/preview', {
       method: 'POST',
-      body: { url, ref },
+      body: { url, ref, proxy },
     }),
-  addRepo: (url: string, ref: string, name: string, memeDir: string) =>
+  addRepo: (url: string, ref: string, name: string, memeDir: string, proxy: string) =>
     request<RepoInfo>('/api/admin/repos', {
       method: 'POST',
-      body: { url, ref, name, meme_dir: memeDir },
+      body: { url, ref, name, meme_dir: memeDir, proxy },
+    }),
+  setRepoSettings: (
+    identifier: string,
+    payload: { proxy?: string; name?: string; apply?: boolean },
+  ) =>
+    request<RepoInfo>(`/api/admin/repos/${encodeURIComponent(identifier)}`, {
+      method: 'PATCH',
+      body: payload,
     }),
   removeRepo: (identifier: string) =>
     request<{ identifier: string; removed_memes: string[]; message: string }>(
@@ -350,10 +402,10 @@ export const api = {
 
   // 设置
   getSettings: () => request<SettingsResponse>('/api/admin/settings'),
-  updateSettings: (apiDomain: string) =>
+  updateSettings: (payload: { api_domain?: string; github_proxy?: string }) =>
     request<SettingsResponse>('/api/admin/settings', {
       method: 'PATCH',
-      body: { api_domain: apiDomain },
+      body: payload,
     }),
 }
 

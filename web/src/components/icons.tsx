@@ -26,6 +26,7 @@ import {
   Sun,
   Trash2,
   X,
+  Zap,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -58,8 +59,9 @@ export const IconMoon = withSize(Moon, 16)
 export const IconLogout = withSize(LogOut, 16)
 export const IconLock = withSize(KeyRound, 15)
 export const IconServer = withSize(Server, 14)
+export const IconZap = withSize(Zap, 14)
 export const IconBan = withSize(Ban, 14)
 export const IconCode = withSize(Code2, 14)
 
-export { Ban, Check, Code2, Download, Eye, Info, Moon, Plus, Search, Server, Settings, Sun, Trash2, X }
+export { Ban, Check, Code2, Download, Eye, Info, Moon, Plus, Search, Server, Settings, Sun, Trash2, X, Zap }
 export type { LucideIcon }

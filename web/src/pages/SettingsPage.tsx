@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { useToast } from '../components/Toast'
 import { Alert, Badge, Card, Spinner, Switch } from '../components/ui'
+import { ProxyPicker } from '../components/ProxyPicker'
 import { IconCheck, IconCode, IconLock, IconMoon, IconServer, IconSun } from '../components/icons'
 
 export default function SettingsPage({
@@ -27,10 +28,26 @@ export default function SettingsPage({
   const [domainDraft, setDomainDraft] = useState(apiDomain)
   const [savingDomain, setSavingDomain] = useState(false)
   const [domainError, setDomainError] = useState('')
+  const [proxyDraft, setProxyDraft] = useState('')
+  const [globalProxy, setGlobalProxy] = useState('')
+  const [proxyPresets, setProxyPresets] = useState<string[]>([])
+  const [savingProxy, setSavingProxy] = useState(false)
+  const [proxyError, setProxyError] = useState('')
 
   useEffect(() => {
     setDomainDraft(apiDomain)
   }, [apiDomain])
+
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((r) => {
+        setProxyDraft(r.repo.github_proxy)
+        setGlobalProxy(r.repo.effective_proxy)
+        setProxyPresets(r.repo.proxy_presets)
+      })
+      .catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     publicApi
@@ -53,7 +70,7 @@ export default function SettingsPage({
     }
     setSavingDomain(true)
     try {
-      const result = await api.updateSettings(value)
+      const result = await api.updateSettings({ api_domain: value })
       onApiDomainChange(result.server.api_domain)
       setDomainDraft(result.server.api_domain)
       toast.success(
@@ -63,6 +80,26 @@ export default function SettingsPage({
       setDomainError(e instanceof ApiError ? e.message : '保存失败')
     } finally {
       setSavingDomain(false)
+    }
+  }
+
+  async function saveProxy(e: FormEvent) {
+    e.preventDefault()
+    setProxyError('')
+    setSavingProxy(true)
+    try {
+      const result = await api.updateSettings({ github_proxy: proxyDraft.trim() })
+      setProxyDraft(result.repo.github_proxy)
+      setGlobalProxy(result.repo.effective_proxy)
+      toast.success(
+        result.repo.effective_proxy
+          ? `全局加速源已设置为 ${result.repo.effective_proxy}`
+          : '已改为直连 GitHub',
+      )
+    } catch (e) {
+      setProxyError(e instanceof ApiError ? e.message : '保存失败')
+    } finally {
+      setSavingProxy(false)
     }
   }
 
@@ -162,6 +199,47 @@ export default function SettingsPage({
                 </button>
               )}
             </div>
+          </form>
+        </Card>
+
+        <Card title="GitHub 加速源" pad>
+          <p className="text-sm text-muted mb-4">
+            外部表情仓库都从 GitHub 拉取。配置加速源后，请求地址会变成
+            「加速源 + 原地址」，例如{' '}
+            <code className="mono">https://加速源/https://github.com/owner/repo</code>。
+            加速源不可用时会自动退回直连，不会导致同步失败。这里设置的是全局默认值，
+            单个仓库可以在「外部仓库」页面里单独覆盖；自建加速源直接填在下面即可，
+            只保存在本机配置里。
+          </p>
+          {proxyError && <Alert kind="error">{proxyError}</Alert>}
+          <form onSubmit={saveProxy}>
+            <ProxyPicker
+              value={proxyDraft}
+              onChange={setProxyDraft}
+              presets={proxyPresets}
+              testIdentifier="MemeCrafters/meme-generator-contrib"
+              disabled={savingProxy}
+            />
+            <div className="btn-row">
+              <button className="btn btn-primary" type="submit" disabled={savingProxy}>
+                {savingProxy ? <span className="spinner" /> : <IconCheck size={14} />}
+                保存
+              </button>
+              {proxyDraft.trim().replace(/\/+$/, '') !== globalProxy && (
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={savingProxy}
+                  onClick={() => setProxyDraft(globalProxy)}
+                >
+                  撤销
+                </button>
+              )}
+            </div>
+            <span className="field-hint">
+              当前生效：
+              {globalProxy ? <code className="mono">{globalProxy}</code> : '直连 GitHub'}
+            </span>
           </form>
         </Card>
 
